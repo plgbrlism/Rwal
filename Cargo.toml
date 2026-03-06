@@ -1,0 +1,19 @@
+[package]
+name = "rwal"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4.0", features = ["derive"] }
+env_logger = "0.10"
+image = "0.24"
+lazy_static = "1.4"
+log = "0.4"
+palette = { version = "0.7", features = ["serde"] }
+rand = "0.8"
+rayon = "1.7" # For Parrallelism
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+toml = "0.7"
