@@ -38,6 +38,10 @@ pub struct GenerateArgs {
     /// Apply the generated palette
     #[arg(long)]
     pub apply: bool,
+
+    /// Number of colors to extract
+    #[arg(long, default_value_t = 16)]
+    pub num_colors: usize,
 }
 
 #[derive(Parser, Debug)]
