@@ -1,72 +1,200 @@
-// Declare the public modules that make up the application's functionality.
-pub mod cli;
-pub mod color_extractor;
-pub mod config_writer;
-pub mod image_loader;
-pub mod palette_generator;
-pub mod paths;
-pub mod wallpaper;
+#![allow(dead_code)]
+/*
+Full pipeline in order:
 
-// Import necessary items from other modules and external crates.
-use anyhow::Result; // For flexible error handling.
-use clap::Parser; // For parsing command-line arguments.
-use cli::{Cli, Commands}; // For CLI structure and commands.
+parse cli args
+→ resolve image (image::loader)
+→ check cache (cache::scheme)
+→ if miss: extract colors (colors::extractor) → adjust palette (colors::palette)
+→ write cache
+→ write colors.json (export::colors_json)
+→ render templates (export::templates)          [unless -s skipped]
+→ send sequences (export::sequences)            [unless -s skipped]
+→ set wallpaper (wallpaper)                     [unless -n skipped]
+*/
 
-/// The main entry point of the application.
-fn main() -> Result<()> {
-    // Initialize the logger to enable logging throughout the application.
-    env_logger::init();
-    // Parse the command-line arguments provided by the user.
+mod error;
+mod paths;
+mod colors;
+mod image;
+mod backends;
+mod cache;
+mod export;
+mod wallpaper;
+mod cli;
+
+use clap::Parser;
+use cli::Cli;
+use colors::types::Rgb;
+use error::warn;
+ 
+fn main() {
     let cli = Cli::parse();
-
-    // Process the specific command given by the user.
-    match cli.command {
-        // If the command is "generate"...
-        Commands::Generate(args) => {
-            // Log the start of the palette generation process for debugging.
-            log::info!("Generating color palette with args: {:?}", args);
-            // Load the image from the path specified by the user.
-            let image = image_loader::load_image(&args.input)?;
-            // Extract a predefined number of colors (16) from the loaded image.
-            let colors = color_extractor::extract_colors(&image, args.num_colors);
-            // Generate a color palette from the extracted colors.
-            let palette = palette_generator::generate_palette(colors, &args.mode, &args.input.to_string_lossy());
-
-            // Check if the user wants to apply the palette (e.g., save it).
-            if args.apply {
-                // Get the path to the cache directory.
-                let cache = paths::cache_dir();
-                // Ensure the cache directory exists, creating it if necessary.
-                std::fs::create_dir_all(&cache)?;
-                // Write the generated color palette to a "colors.json" file in the cache directory.
-                config_writer::write_config(&palette, &cache)?;
-                log::info!("Color palette generated");
-                // Log that the palette has been successfully saved.
-                log::info!("Color palette written to cache");
-                wallpaper::set_wallpaper("feh", &args.input);
-            } else {
-                // If not applying, convert the palette to a pretty-printed JSON string.
-                let json_string = serde_json::to_string_pretty(&palette)?;
-                // Print the JSON string to the standard output.
-                println!("{}", json_string);
+ 
+    if let Err(e) = cli.validate() {
+        eprintln!("\x1b[31merror\x1b[0m: {e}");
+        std::process::exit(1);
+    }
+ 
+    if let Err(e) = run(cli) {
+        error::error(&e);
+        std::process::exit(1);
+    }
+}
+ 
+fn run(cli: Cli) -> Result<(), error::RwalError> {
+    // ── 1. Setup paths ───────────────────────────────────────────────────────
+    let paths = paths::Paths::resolve()?;
+    paths.ensure_dirs()?;
+ 
+    // ── 2. Resolve image ─────────────────────────────────────────────────────
+    let image_path = match &cli.image {
+        Some(p) => image::loader::resolve(p)?,
+        None => {
+            if cli.restore {
+                return restore(&paths, &cli);
             }
+            return Err(error::RwalError::ImageNotFound(
+                std::path::PathBuf::from("<no image>"),
+            ));
+        }
+    };
+ 
+    step(&cli, &format!("image: {}", image_path.display()));
+ 
+    // ── 3. Check cache ───────────────────────────────────────────────────────
+    let file_size = cache::scheme::file_size(&image_path);
+    let key = cache::scheme::cache_key(
+        &image_path,
+        &cli.backend,
+        cli.light,
+        cli.saturate,
+        file_size,
+    );
+ 
+    let dict = match cache::scheme::load(&paths, &key) {
+        Ok(Some(cached)) => {
+            step(&cli, "colors: loaded from cache");
+            cached
+        }
+        Ok(None) | Err(_) => {
+            // ── 4. Extract colors ────────────────────────────────────────────
+            step(&cli, &format!("backend: {} (accuracy {})", cli.backend, cli.accuracy));
+ 
+            let backend = backends::from_name(&cli.backend)?;
+            let raw = colors::extractor::extract(
+                &image_path,
+                backend.as_ref(),
+                16,
+                cli.accuracy,
+            )?;
+ 
+            step(&cli, "colors: extracted");
+ 
+            // ── 5. Build palette ─────────────────────────────────────────────
+            let dict = colors::palette::build(
+                raw,
+                image_path.clone(),
+                cli.alpha,
+                cli.light,
+                cli.saturate,
+            )?;
+ 
+            // ── 6. Write cache ───────────────────────────────────────────────
+            if let Err(e) = cache::scheme::save(&paths, &key, &dict) {
+                warn(&e);
+            }
+ 
+            dict
+        }
+    };
+ 
+    // ── 7. Write colors.json ─────────────────────────────────────────────────
+    export::colors_json::write(&paths, &dict)?;
+    step(&cli, "wrote: ~/.cache/rwal/colors.json");
+ 
+    // ── 8. Render templates + sequences ─────────────────────────────────────
+    if !cli.no_sequences {
+        if let Err(e) = export::templates::render_all(&paths, &dict) {
+            warn(&e);
+        }
+        step(&cli, "rendered: templates");
+ 
+        if let Err(e) = export::sequences::apply(&paths, &dict) {
+            warn(&e);
+        }
+        step(&cli, "applied: terminal sequences");
+    }
+ 
+    // ── 9. Set wallpaper ─────────────────────────────────────────────────────
+    if !cli.no_wallpaper {
+        if let Err(e) = wallpaper::set(&image_path) {
+            warn(&e);
+        } else {
+            step(&cli, &format!("wallpaper: {}", image_path.display()));
+        }
+    }
+ 
+    // ── 10. Print palette ────────────────────────────────────────────────────
+    if !cli.quiet {
+        print_palette(&dict.colors);
+    }
+ 
+    Ok(())
+}
+ 
+/// Restore the last scheme from colors.json and re-export without regenerating.
+fn restore(paths: &paths::Paths, cli: &Cli) -> Result<(), error::RwalError> {
+    let dict = export::colors_json::read(paths)?;
 
+    step(cli, "restore: loaded last scheme");
+
+    if !cli.no_sequences {
+        if let Err(e) = export::templates::render_all(paths, &dict) {
+            warn(&e);
         }
-        // If the command is "apply"...
-        Commands::Apply => {
-            log::info!("Applying color palette");
-            // Note: This is a placeholder for future functionality.
-            // It would typically read a "colors.json" file and apply the theme.
-            log::warn!("'apply' command is not fully implemented yet.");
-        }
-        // If the command is "set-wallpaper"...
-        Commands::SetWallpaper(args) => {
-            log::info!("Setting wallpaper with args: {:?}", args);
-            // Call the function to set the desktop wallpaper.
-            wallpaper::set_wallpaper(&args.backend, &args.path);
+        if let Err(e) = export::sequences::apply(paths, &dict) {
+            warn(&e);
         }
     }
 
-    // If all operations were successful, return Ok.
+    if !cli.quiet {
+        print_palette(&dict.colors);
+    }
+
     Ok(())
 }
+ 
+/// Print a step message unless quiet mode is on.
+fn step(cli: &Cli, msg: &str) {
+    if !cli.quiet {
+        println!("\x1b[32m::\x1b[0m {msg}");
+    }
+}
+ 
+/// Print all 16 colors as colored blocks with hex values.
+fn print_palette(colors: &[Rgb; 16]) {
+    println!();
+ 
+    // Top row: color blocks
+    for (i, color) in colors.iter().enumerate() {
+        print!(
+            "\x1b[48;2;{};{};{}m  \x1b[0m",
+            color.r, color.g, color.b
+        );
+        if i == 7 {
+            println!();
+        }
+    }
+    println!();
+ 
+    // Bottom row: hex values
+    for (i, color) in colors.iter().enumerate() {
+        print!("{} ", color.to_hex());
+        if i == 7 {
+            println!();
+        }
+    }
+    println!();
+}
+ 

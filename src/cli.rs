@@ -1,56 +1,100 @@
-use clap::{Parser, Subcommand};
+/*
+CLI Commands:
+
+-i <path>          image or directory
+-l                 light mode
+-n                 skip wallpaper
+-s                 skip sequences + templates
+-R                 restore last scheme (read cache, re-export)
+-q                 quiet
+--backend <name>   kmeans (default) | median_cut
+--saturate <0.0-1.0>
+--alpha <0-100>
+--theme <name>     load a saved .json theme instead of image
+*/
+use clap::Parser;
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
+#[command(
+    name    = "rwal",
+    version = env!("CARGO_PKG_VERSION"),
+    about   = "Generate color schemes from images and apply them system-wide",
+    long_about = None,
+)]
 pub struct Cli {
-    #[command(subcommand)]
-    pub command: Commands,
-}
+    /// Image file or directory to generate colors from
+    #[arg(short = 'i', long = "image", value_name = "PATH")]
+    pub image: Option<PathBuf>,
 
-#[derive(Subcommand, Debug)]
-pub enum Commands {
-    /// Generate a color palette from an image
-    Generate(GenerateArgs),
-    /// Apply the generated color palette to config files
-    Apply,
-    /// Set the wallpaper
-    SetWallpaper(SetWallpaperArgs),
-}
+    /// Restore the last generated color scheme from cache
+    #[arg(short = 'R', long = "restore", default_value_t = false)]
+    pub restore: bool,
 
-#[derive(Parser, Debug)]
-pub struct GenerateArgs {
-    /// Path to the image file
-    #[arg(required = true)]
-    pub input: std::path::PathBuf,
+    /// Generate a light color scheme instead of dark
+    #[arg(short = 'l', long = "light", default_value_t = false)]
+    pub light: bool,
 
-    /// Dark or light mode
-    #[arg(long, default_value = "dark")]
-    pub mode: String,
+    /// Skip setting the wallpaper
+    #[arg(short = 'n', long = "no-wallpaper", default_value_t = false)]
+    pub no_wallpaper: bool,
 
-    /// Contrast level
-    #[arg(long, default_value = "medium")]
-    pub contrast: String,
+    /// Skip applying sequences and rendering templates
+    #[arg(short = 's', long = "no-sequences", default_value_t = false)]
+    pub no_sequences: bool,
 
-    /// Wallpaper setting backend
-    #[arg(long, default_value = "none")]
+    /// Quiet mode — suppress all output
+    #[arg(short = 'q', long = "quiet", default_value_t = false)]
+    pub quiet: bool,
+
+    /// Color extraction backend to use
+    #[arg(
+        long = "backend",
+        value_name = "NAME",
+        default_value = "kmeans",
+        value_parser = ["kmeans", "median_cut"],
+    )]
     pub backend: String,
 
-    /// Apply the generated palette
-    #[arg(long)]
-    pub apply: bool,
+    /// Number of k-means iterations (1-20, higher = more accurate but slower)
+    #[arg(
+        long = "accuracy",
+        value_name = "N",
+        default_value_t = 10,
+        value_parser = clap::value_parser!(u8).range(1..=20),
+    )]
+    pub accuracy: u8,
 
-    /// Number of colors to extract
-    #[arg(long, default_value_t = 16)]
-    pub num_colors: usize,
+    /// Shift color saturation (-1.0 to 1.0)
+    #[arg(
+        long = "saturate",
+        value_name = "AMOUNT",
+        allow_negative_numbers = true,
+    )]
+    pub saturate: Option<f32>,
+
+    /// Transparency value written to colors.json (0-100)
+    #[arg(
+        long = "alpha",
+        value_name = "N",
+        default_value_t = 100,
+        value_parser = clap::value_parser!(u8).range(0..=100),
+    )]
+    pub alpha: u8,
+
+    /// Load a saved theme by name instead of generating from image
+    #[arg(long = "theme", value_name = "NAME")]
+    pub theme: Option<String>,
 }
 
-#[derive(Parser, Debug)]
-pub struct SetWallpaperArgs {
-    /// Path to the wallpaper image
-    #[arg(required = true)]
-    pub path: std::path::PathBuf,
-
-    /// Wallpaper setting backend
-    #[arg(long, default_value = "feh")]
-    pub backend: String,
+impl Cli {
+    /// Validate that the user provided either -i, --theme, or -R.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.image.is_none() && self.theme.is_none() && !self.restore {
+            return Err(
+                "no input provided — use -i <image>, --theme <n>, or -R to restore".into()
+            );
+        }
+        Ok(())
+    }
 }
