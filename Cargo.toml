@@ -19,3 +19,4 @@ thiserror = "1.0"
 toml = "0.7"
 filetime = "0.2.27"
 sha1 = "0.10.6"
+rust-embed = { version = "8.0", features = ["include-exclude"] }

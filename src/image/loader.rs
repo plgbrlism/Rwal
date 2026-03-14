@@ -40,26 +40,13 @@ pub fn resolve(path: &Path) -> Result<PathBuf, RwalError> {
     }
 }
 
-/// Validate that a file has a supported image extension.
-fn validate_extension(path: &Path) -> Result<(), RwalError> {
-    match path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_lowercase())
-    {
-        Some(ext) if SUPPORTED.contains(&ext.as_str()) => Ok(()),
-        Some(ext) => Err(RwalError::UnsupportedFormat(ext)),
-        None => Err(RwalError::UnsupportedFormat(String::from("<no extension>"))),
-    }
-}
-
 /// Pick the most recently modified supported image from a directory.
 fn pick_from_dir(dir: &Path) -> Result<PathBuf, RwalError> {
     let best = std::fs::read_dir(dir)
         .map_err(|e| RwalError::IoError(e.to_string()))?
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
-        .filter(|p| p.is_file())
+        .filter(|p| p.is_file() && is_supported(p))
         .filter_map(|p| {
             let modified = std::fs::metadata(&p)
                 .and_then(|m| m.modified())
@@ -121,51 +108,6 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.path);
         }
-    }
-
-    // ── validate_extension ───────────────────────────────────────────────────
-
-    #[test]
-    fn test_valid_extensions_are_accepted() {
-        let tmp = TempDir::new();
-        for ext in &["jpg", "jpeg", "png", "webp", "gif", "tiff", "tif"] {
-            let f = tmp.create_file(&format!("img.{ext}"));
-            assert!(validate_extension(&f).is_ok(), "should accept .{ext}");
-        }
-    }
-
-    #[test]
-    fn test_uppercase_extension_is_accepted() {
-        let tmp = TempDir::new();
-        let f = tmp.create_file("img.PNG");
-        assert!(validate_extension(&f).is_ok());
-    }
-
-    #[test]
-    fn test_mixed_case_extension_is_accepted() {
-        let tmp = TempDir::new();
-        let f = tmp.create_file("img.JpEg");
-        assert!(validate_extension(&f).is_ok());
-    }
-
-    #[test]
-    fn test_unsupported_extension_is_rejected() {
-        let tmp = TempDir::new();
-        let f = tmp.create_file("img.bmp");
-        assert!(matches!(
-            validate_extension(&f),
-            Err(RwalError::UnsupportedFormat(_))
-        ));
-    }
-
-    #[test]
-    fn test_no_extension_is_rejected() {
-        let tmp = TempDir::new();
-        let f = tmp.create_file("imagefile");
-        assert!(matches!(
-            validate_extension(&f),
-            Err(RwalError::UnsupportedFormat(_))
-        ));
     }
 
     // ── resolve: file path ───────────────────────────────────────────────────
