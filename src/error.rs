@@ -35,7 +35,6 @@ pub enum RwalError {
     // Export
     TemplateReadError(PathBuf, String),
     TemplateWriteError(PathBuf, String),
-    TemplateMissingTarget(PathBuf),
     ColorsJsonWriteError(PathBuf, String),
     SequenceWriteError(String),
 
@@ -87,8 +86,6 @@ impl fmt::Display for RwalError {
                 write!(f, "Could not read template {}: {msg}", p.display()),
             RwalError::TemplateWriteError(p, msg) =>
                 write!(f, "Could not write rendered template to {}: {msg}", p.display()),
-            RwalError::TemplateMissingTarget(p) =>
-                write!(f, "Template has no '# Target:' directive: {}", p.display()),
             RwalError::ColorsJsonWriteError(p, msg) =>
                 write!(f, "Could not write colors.json to {}: {msg}", p.display()),
             RwalError::SequenceWriteError(msg) =>
@@ -195,14 +192,6 @@ mod tests {
     }
 
     #[test]
-    fn test_template_missing_target_display() {
-        let err = RwalError::TemplateMissingTarget(PathBuf::from("/tmp/tpl.conf"));
-        let msg = err.to_string();
-        assert!(msg.contains("# Target:"));
-        assert!(msg.contains("tpl.conf"));
-    }
-
-    #[test]
     fn test_wallpaper_set_failed_display() {
         let err = RwalError::WallpaperSetFailed("feh exited with code 1".into());
         assert!(err.to_string().contains("feh exited with code 1"));
@@ -267,7 +256,6 @@ mod tests {
             Box::new(RwalError::CacheCorrupted(PathBuf::from("/e"))),
             Box::new(RwalError::TemplateReadError(PathBuf::from("/f"), "x".into())),
             Box::new(RwalError::TemplateWriteError(PathBuf::from("/g"), "x".into())),
-            Box::new(RwalError::TemplateMissingTarget(PathBuf::from("/h"))),
             Box::new(RwalError::ColorsJsonWriteError(PathBuf::from("/i"), "x".into())),
             Box::new(RwalError::SequenceWriteError("x".into())),
             Box::new(RwalError::WallpaperSetFailed("x".into())),

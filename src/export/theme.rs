@@ -90,3 +90,51 @@ fn parse_theme(contents: &str, label: &str) -> Result<ColorDict, RwalError> {
         colors,
     })
 }
+
+/// List all available themes — bundled first, then user themes.
+/// Bundled themes are marked with (default), user themes with (user).
+/// If a user theme overrides a bundled one, only (user) is shown.
+pub fn list_all(paths: &Paths) {
+    use std::collections::HashSet;
+
+    let mut seen: HashSet<String> = HashSet::new();
+
+    // Collect user themes first so we know which bundled ones are overridden
+    let mut user_themes: Vec<String> = Vec::new();
+    if paths.colorschemes_dir.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(&paths.colorschemes_dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                        user_themes.push(stem.to_string());
+                        seen.insert(stem.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // Print bundled themes (skip if overridden by user)
+    let mut bundled: Vec<String> = BundledColorschemes::iter()
+        .filter_map(|f| {
+            let name = f.trim_end_matches(".json").to_string();
+            if seen.contains(&name) { None } else { Some(name) }
+        })
+        .collect();
+    bundled.sort();
+
+    for name in &bundled {
+        println!("{name} (default)");
+    }
+
+    // Print user themes
+    user_themes.sort();
+    for name in &user_themes {
+        println!("{name} (user)");
+    }
+
+    if bundled.is_empty() && user_themes.is_empty() {
+        println!("no themes found");
+    }
+}

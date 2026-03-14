@@ -85,11 +85,24 @@ pub struct Cli {
     /// Load a saved theme by name instead of generating from image
     #[arg(long = "theme", value_name = "NAME")]
     pub theme: Option<String>,
+
+    /// List all available themes (bundled + user)
+    #[arg(long = "list-themes", default_value_t = false)]
+    pub list_themes: bool,
+ 
+    /// List all available color extraction backends
+    #[arg(long = "list-backends", default_value_t = false)]
+    pub list_backends: bool,
 }
 
 impl Cli {
     /// Validate that the user provided either -i, --theme, or -R.
     pub fn validate(&self) -> Result<(), String> {
+        if self.list_themes || self.list_backends {
+            // No validation needed when listing themes or backends
+            return Ok(());
+        }
+
         if self.image.is_none() && self.theme.is_none() && !self.restore {
             return Err(
                 "no input provided — use -i <image>, --theme <n>, or -R to restore".into()

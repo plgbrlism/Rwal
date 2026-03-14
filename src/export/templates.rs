@@ -1,6 +1,5 @@
 use rust_embed::Embed;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 
 use crate::colors::types::ColorDict;
 use crate::error::{warn, RwalError};

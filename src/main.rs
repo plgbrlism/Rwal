@@ -47,6 +47,16 @@ fn run(cli: Cli) -> Result<(), error::RwalError> {
     let paths = paths::Paths::resolve()?;
     paths.ensure_dirs()?;
 
+    // Handle --list-themes and --list-backends before doing any work
+    if cli.list_themes {
+        export::theme::list_all(&paths);
+        return Ok(());
+    }
+    if cli.list_backends {
+        println!("kmeans\nmedian_cut");
+        return Ok(());
+    }
+
     // ── 2. Resolve ColorDict ─────────────────────────────────────────────────
     let dict = if let Some(name) = &cli.theme {
         // --theme: skip image extraction entirely, load from colorschemes/
