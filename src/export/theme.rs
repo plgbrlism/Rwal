@@ -2,54 +2,57 @@
 /// and deserialize it into a `ColorDict`.
 ///
 /// Resolution order:
-///   1. `~/.config/rwal/colorschemes/dark/<name>.json`
-///   2. `~/.config/rwal/colorschemes/light/<name>.json`
+///   1. `~/.config/rwal/default_colorschemes/dark/<name>.json`
+///   2. `~/.config/rwal/default_colorschemes/light/<name>.json`
 ///   3. Bundled colorschemes embedded at compile time (same subfolder logic)
 ///
 /// Returns `RwalError::ThemeNotFound` if the name doesn't match anything.
-pub fn load_theme(paths: &Paths, name: &str) -> Result<ColorDict, RwalError> {
-    use crate::colors::types::{Rgb, Special};
 
-    // Normalise name — strip .json suffix if the user typed it
+use rust_embed::RustEmbed;
+
+use crate::colors::types::{ColorDict, Rgb, Special};
+use crate::error::RwalError;
+use crate::paths::Paths;
+
+#[derive(RustEmbed)]
+#[folder = "default_colorschemes/"]
+#[exclude = "*.md"]
+struct BundledColorschemes;
+
+/// Load a named theme from `default_colorschemes/`.
+///
+/// Resolution order:
+///   1. `~/.config/rwal/default_colorschemes/<name>.json`  (user wins)
+///   2. Bundled colorschemes embedded at compile time
+///
+/// Returns `RwalError::ThemeNotFound` if the name matches nothing.
+pub fn load(paths: &Paths, name: &str) -> Result<ColorDict, RwalError> {
     let name = name.trim_end_matches(".json");
 
-    // 1. Check user colorscheme dirs first (dark then light)
-    for subdir in &["dark", "light"] {
-        let path = paths
-            .colorschemes_dir
-            .join(subdir)
-            .join(format!("{name}.json"));
-
-        if path.is_file() {
-            return read_theme_file(&path);
-        }
+    // 1. User colorschemes dir
+    let user_path = paths.colorschemes_dir.join(format!("{name}.json"));
+    if user_path.is_file() {
+        return read_theme_file(&user_path);
     }
 
-    // 2. Fall back to bundled (embedded) colorschemes
-    for subdir in &["dark", "light"] {
-        let key = format!("{subdir}/{name}.json");
-        if let Some(file) = BundledColorschemes::get(&key) {
-            let contents = std::str::from_utf8(file.data.as_ref())
-                .map_err(|_| RwalError::ThemeNotFound(name.to_string()))?;
-            return parse_theme(contents, name);
-        }
+    // 2. Bundled (embedded) colorschemes
+    let key = format!("{name}.json");
+    if let Some(file) = BundledColorschemes::get(&key) {
+        let contents = std::str::from_utf8(file.data.as_ref())
+            .map_err(|_| RwalError::ThemeNotFound(name.to_string()))?;
+        return parse_theme(contents, name);
     }
 
     Err(RwalError::ThemeNotFound(name.to_string()))
 }
 
-/// Deserialize a theme JSON file on disk into a `ColorDict`.
 fn read_theme_file(path: &std::path::Path) -> Result<ColorDict, RwalError> {
     let contents = std::fs::read_to_string(path)
         .map_err(|e| RwalError::CacheReadError(path.to_path_buf(), e.to_string()))?;
     parse_theme(&contents, &path.display().to_string())
 }
 
-/// Parse a theme JSON string into a `ColorDict`.
-/// Reuses the same deserialization structs as `colors_json::read`.
 fn parse_theme(contents: &str, label: &str) -> Result<ColorDict, RwalError> {
-    use crate::colors::types::{Rgb, Special};
-
     #[derive(serde::Deserialize)]
     struct ThemeFile {
         wallpaper: String,

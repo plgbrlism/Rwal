@@ -46,103 +46,111 @@ fn run(cli: Cli) -> Result<(), error::RwalError> {
     // ── 1. Setup paths ───────────────────────────────────────────────────────
     let paths = paths::Paths::resolve()?;
     paths.ensure_dirs()?;
- 
-    // ── 2. Resolve image ─────────────────────────────────────────────────────
-    let image_path = match &cli.image {
-        Some(p) => image::loader::resolve(p)?,
-        None => {
-            if cli.restore {
-                return restore(&paths, &cli);
-            }
-            return Err(error::RwalError::ImageNotFound(
+
+    // ── 2. Resolve ColorDict ─────────────────────────────────────────────────
+    let dict = if let Some(name) = &cli.theme {
+        // --theme: skip image extraction entirely, load from colorschemes/
+        let dict = export::theme::load(&paths, name)?;
+        step(&cli, &format!("theme: {name}"));
+        dict
+
+    } else if cli.restore {
+        // --restore: re-export last scheme from colors.json
+        return restore(&paths, &cli);
+
+    } else {
+        // Normal path: extract from image
+        let image_path = match &cli.image {
+            Some(p) => image::loader::resolve(p)?,
+            None => return Err(error::RwalError::ImageNotFound(
                 std::path::PathBuf::from("<no image>"),
-            ));
-        }
-    };
- 
-    step(&cli, &format!("image: {}", image_path.display()));
- 
-    // ── 3. Check cache ───────────────────────────────────────────────────────
-    let file_size = cache::scheme::file_size(&image_path);
-    let key = cache::scheme::cache_key(
-        &image_path,
-        &cli.backend,
-        cli.light,
-        cli.saturate,
-        file_size,
-    );
- 
-    let dict = match cache::scheme::load(&paths, &key) {
-        Ok(Some(cached)) => {
-            step(&cli, "colors: loaded from cache");
-            cached
-        }
-        Ok(None) | Err(_) => {
-            // ── 4. Extract colors ────────────────────────────────────────────
-            step(&cli, &format!("backend: {} (accuracy {})", cli.backend, cli.accuracy));
- 
-            let backend = backends::from_name(&cli.backend)?;
-            let raw = colors::extractor::extract(
-                &image_path,
-                backend.as_ref(),
-                16,
-                cli.accuracy,
-            )?;
- 
-            step(&cli, "colors: extracted");
- 
-            // ── 5. Build palette ─────────────────────────────────────────────
-            let dict = colors::palette::build(
-                raw,
-                image_path.clone(),
-                cli.alpha,
-                cli.light,
-                cli.saturate,
-            )?;
- 
-            // ── 6. Write cache ───────────────────────────────────────────────
-            if let Err(e) = cache::scheme::save(&paths, &key, &dict) {
-                warn(&e);
+            )),
+        };
+
+        step(&cli, &format!("image: {}", image_path.display()));
+
+        // ── 3. Check cache ───────────────────────────────────────────────────
+        let file_size = cache::scheme::file_size(&image_path);
+        let key = cache::scheme::cache_key(
+            &image_path,
+            &cli.backend,
+            cli.light,
+            cli.saturate,
+            file_size,
+        );
+
+        match cache::scheme::load(&paths, &key) {
+            Ok(Some(cached)) => {
+                step(&cli, "colors: loaded from cache");
+                cached
             }
- 
-            dict
+            Ok(None) | Err(_) => {
+                // ── 4. Extract colors ────────────────────────────────────────
+                step(&cli, &format!("backend: {} (accuracy {})", cli.backend, cli.accuracy));
+
+                let backend = backends::from_name(&cli.backend)?;
+                let raw = colors::extractor::extract(
+                    &image_path,
+                    backend.as_ref(),
+                    16,
+                    cli.accuracy,
+                )?;
+
+                step(&cli, "colors: extracted");
+
+                // ── 5. Build palette ─────────────────────────────────────────
+                let dict = colors::palette::build(
+                    raw,
+                    image_path.clone(),
+                    cli.alpha,
+                    cli.light,
+                    cli.saturate,
+                )?;
+
+                // ── 6. Write cache ───────────────────────────────────────────
+                if let Err(e) = cache::scheme::save(&paths, &key, &dict) {
+                    warn(&e);
+                }
+
+                dict
+            }
         }
     };
- 
+
     // ── 7. Write colors.json ─────────────────────────────────────────────────
     export::colors_json::write(&paths, &dict)?;
     step(&cli, "wrote: ~/.cache/rwal/colors.json");
- 
+
     // ── 8. Render templates + sequences ─────────────────────────────────────
     if !cli.no_sequences {
         if let Err(e) = export::templates::render_all(&paths, &dict) {
             warn(&e);
         }
         step(&cli, "rendered: templates");
- 
+
         if let Err(e) = export::sequences::apply(&paths, &dict) {
             warn(&e);
         }
         step(&cli, "applied: terminal sequences");
     }
- 
+
     // ── 9. Set wallpaper ─────────────────────────────────────────────────────
-    if !cli.no_wallpaper {
-        if let Err(e) = wallpaper::set(&image_path) {
+    if !cli.no_wallpaper && !dict.wallpaper.as_os_str().is_empty() {
+        if let Err(e) = wallpaper::set(&dict.wallpaper) {
             warn(&e);
         } else {
-            step(&cli, &format!("wallpaper: {}", image_path.display()));
+            step(&cli, &format!("wallpaper: {}", dict.wallpaper.display()));
         }
     }
- 
+
     // ── 10. Print palette ────────────────────────────────────────────────────
     if !cli.quiet {
         print_palette(&dict.colors);
     }
- 
+
     Ok(())
 }
- 
+
 /// Restore the last scheme from colors.json and re-export without regenerating.
 fn restore(paths: &paths::Paths, cli: &Cli) -> Result<(), error::RwalError> {
     let dict = export::colors_json::read(paths)?;

@@ -39,6 +39,10 @@ pub enum RwalError {
     ColorsJsonWriteError(PathBuf, String),
     SequenceWriteError(String),
 
+    // Theme
+    ThemeNotFound(String),
+    ThemeCorrupted(String),
+
     // Wallpaper
     WallpaperSetFailed(String),
     NoCompositorDetected,
@@ -89,6 +93,12 @@ impl fmt::Display for RwalError {
                 write!(f, "Could not write colors.json to {}: {msg}", p.display()),
             RwalError::SequenceWriteError(msg) =>
                 write!(f, "Could not write terminal sequences: {msg}"),
+
+            // Theme
+            RwalError::ThemeNotFound(name) =>
+                write!(f, "Theme '{name}' not found — check colorschemes/dark/ or colorschemes/light/"),
+            RwalError::ThemeCorrupted(name) =>
+                write!(f, "Theme '{name}' could not be parsed — check JSON structure"),
 
             // Wallpaper
             RwalError::WallpaperSetFailed(msg) =>
