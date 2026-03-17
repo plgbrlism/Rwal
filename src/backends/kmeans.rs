@@ -63,17 +63,47 @@ impl Backend for KMeans {
     }
 }
 
-/// Random initialization — pick k distinct pixels as starting centroids.
+/// K-Means++ initialization: pick first centroid randomly, then pick subsequent
+/// centroids with probability proportional to squared distance from nearest existing centroid.
 fn init_centroids(pixels: &[Rgb], k: usize) -> Vec<Rgb> {
     let mut rng = rand::thread_rng();
-    let mut chosen: Vec<Rgb> = pixels
-        .choose_multiple(&mut rng, k)
-        .cloned()
+    let mut chosen = Vec::with_capacity(k);
+
+    if pixels.is_empty() {
+        return chosen;
+    }
+
+    chosen.push(*pixels.choose(&mut rng).unwrap());
+
+    let mut min_sq_dists: Vec<u32> = pixels
+        .iter()
+        .map(|px| squared_distance(px, &chosen[0]))
         .collect();
 
-    // Pad with first pixel if we got fewer than k (very small pixel sets)
     while chosen.len() < k {
-        chosen.push(pixels[0]);
+        let dist = match rand::distributions::WeightedIndex::new(&min_sq_dists) {
+            Ok(dist) => dist,
+            Err(_) => {
+                // All remaining pixels are identical to chosen centroids.
+                // Just pad with the first pixel to reach k.
+                while chosen.len() < k {
+                    chosen.push(pixels[0]);
+                }
+                break;
+            }
+        };
+
+        use rand::distributions::Distribution;
+        let next_idx = dist.sample(&mut rng);
+        let next_centroid = pixels[next_idx];
+        chosen.push(next_centroid);
+
+        for (i, px) in pixels.iter().enumerate() {
+            let dist_to_new = squared_distance(px, &next_centroid);
+            if dist_to_new < min_sq_dists[i] {
+                min_sq_dists[i] = dist_to_new;
+            }
+        }
     }
 
     chosen

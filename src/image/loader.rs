@@ -19,9 +19,6 @@ use std::time::SystemTime;
 
 use crate::error::RwalError;
 
-/// Supported image extensions — all lowercase.
-const SUPPORTED: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "tiff", "tif"];
-
 /// Resolve an input path to a single valid image file.
 ///
 /// - If `path` is a file: validate its extension and return it.
@@ -46,7 +43,7 @@ fn pick_from_dir(dir: &Path) -> Result<PathBuf, RwalError> {
         .map_err(|e| RwalError::IoError(e.to_string()))?
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
-        .filter(|p| p.is_file() && is_supported(p))
+        .filter(|p| p.is_file())
         .filter_map(|p| {
             let modified = std::fs::metadata(&p)
                 .and_then(|m| m.modified())
@@ -59,13 +56,6 @@ fn pick_from_dir(dir: &Path) -> Result<PathBuf, RwalError> {
     best.ok_or_else(|| RwalError::EmptyDirectory(dir.to_path_buf()))
 }
 
-/// Check if a path has a supported image extension.
-fn is_supported(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .map(|e| SUPPORTED.contains(&e.to_lowercase().as_str()))
-        .unwrap_or(false)
-}
 
 #[cfg(test)]
 mod tests {
@@ -129,15 +119,7 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn test_resolve_unsupported_file_errors() {
-        let tmp = TempDir::new();
-        let f = tmp.create_file("img.bmp");
-        assert!(matches!(
-            resolve(&f),
-            Err(RwalError::UnsupportedFormat(_))
-        ));
-    }
+
 
     // ── resolve: directory path ──────────────────────────────────────────────
 
@@ -158,16 +140,7 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn test_resolve_dir_ignores_unsupported_files() {
-        let tmp = TempDir::new();
-        tmp.create_file("readme.txt");
-        tmp.create_file("script.sh");
-        assert!(matches!(
-            resolve(tmp.path()),
-            Err(RwalError::EmptyDirectory(_))
-        ));
-    }
+
 
     #[test]
     fn test_resolve_dir_picks_most_recently_modified() {
@@ -197,28 +170,4 @@ mod tests {
         assert_eq!(result.file_name().unwrap(), "real.png");
     }
 
-    // ── is_supported ─────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_is_supported_true_for_all_formats() {
-        let tmp = TempDir::new();
-        for ext in &["jpg", "jpeg", "png", "webp", "gif", "tiff", "tif"] {
-            let f = tmp.create_file(&format!("img.{ext}"));
-            assert!(is_supported(&f), ".{ext} should be supported");
-        }
-    }
-
-    #[test]
-    fn test_is_supported_false_for_unsupported() {
-        let tmp = TempDir::new();
-        let f = tmp.create_file("img.svg");
-        assert!(!is_supported(&f));
-    }
-
-    #[test]
-    fn test_is_supported_false_for_no_extension() {
-        let tmp = TempDir::new();
-        let f = tmp.create_file("noext");
-        assert!(!is_supported(&f));
-    }
 }

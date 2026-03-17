@@ -18,7 +18,7 @@ use std::fmt;
 pub enum RwalError {
     // Image loading
     ImageNotFound(PathBuf),
-    UnsupportedFormat(String),
+
     EmptyDirectory(PathBuf),
     ImageDecodeError(String),
 
@@ -58,8 +58,7 @@ impl fmt::Display for RwalError {
             // Image loading
             RwalError::ImageNotFound(p) =>
                 write!(f, "Image not found: {}", p.display()),
-            RwalError::UnsupportedFormat(ext) =>
-                write!(f, "Unsupported image format: '.{ext}' — use jpg, png, webp, gif, or tiff"),
+
             RwalError::EmptyDirectory(p) =>
                 write!(f, "No valid images found in directory: {}", p.display()),
             RwalError::ImageDecodeError(msg) =>
@@ -137,13 +136,7 @@ mod tests {
         assert_eq!(err.to_string(), "Image not found: /tmp/ghost.png");
     }
 
-    #[test]
-    fn test_unsupported_format_display() {
-        let err = RwalError::UnsupportedFormat("bmp".into());
-        let msg = err.to_string();
-        assert!(msg.contains("bmp"));
-        assert!(msg.contains("Unsupported image format"));
-    }
+
 
     #[test]
     fn test_empty_directory_display() {
@@ -245,7 +238,7 @@ mod tests {
     fn test_all_variants_are_debug() {
         let variants: Vec<Box<dyn std::fmt::Debug>> = vec![
             Box::new(RwalError::ImageNotFound(PathBuf::from("/a"))),
-            Box::new(RwalError::UnsupportedFormat("bmp".into())),
+
             Box::new(RwalError::EmptyDirectory(PathBuf::from("/b"))),
             Box::new(RwalError::ImageDecodeError("bad".into())),
             Box::new(RwalError::NoColorsExtracted),

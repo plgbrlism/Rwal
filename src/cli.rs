@@ -65,6 +65,14 @@ pub struct Cli {
     )]
     pub accuracy: u8,
 
+    #[arg(
+        long = "strategy",
+        value_name = "NAME",
+        default_value = "classic",
+        value_parser = ["classic", "complementary", "analogous", "monochromatic", "adaptive", "vibrant", "pastel", "split_complementary", "triadic"],
+    )]
+    pub strategy: String,
+
     /// Shift color saturation (-1.0 to 1.0)
     #[arg(
         long = "saturate",

@@ -84,6 +84,7 @@ fn run(cli: Cli) -> Result<(), error::RwalError> {
         let key = cache::scheme::cache_key(
             &image_path,
             &cli.backend,
+            &cli.strategy,
             cli.light,
             cli.saturate,
             file_size,
@@ -115,6 +116,7 @@ fn run(cli: Cli) -> Result<(), error::RwalError> {
                     cli.alpha,
                     cli.light,
                     cli.saturate,
+                    &cli.strategy,
                 )?;
 
                 // ── 6. Write cache ───────────────────────────────────────────

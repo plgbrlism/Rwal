@@ -1,70 +1,60 @@
 # rwal - A Rust Wallpaper and Color Palette Tool
 
-`rwal` is a command-line tool written in Rust that generates a color palette from an image, and can optionally set your wallpaper. It is designed to be fast, simple, and opinionated.
+`rwal` is a fast, robust command-line tool written in Rust that instantly generates gorgeous, readable color palettes from any image and seamlessly applies them system-wide to your terminal, wallpaper, and programs. 
+
+It is designed as a drop-in, memory-safe, entirely statically-typed replacement for the standard python-based `pywal`.
 
 ## Current Features
 
-*   **Color Palette Generation**: Extracts a 16-color palette from a given image using k-means clustering.
-*   **Opinionated Palette**: Creates a 4-color palette with the roles `background`, `foreground`, `accent`, and `secondary`.
-*   **JSON Output**: Outputs the generated 4-color palette to a `colors.json` file.
-*   **Wallpaper Setting**: Can set the wallpaper using `feh`, `swaybg`, or `xwallpaper`.
-
-## Build and Run
-
-To build and run `rwal`, you need to have Rust and Cargo installed.
-
-1.  Clone the repository:
-    ```sh
-    git clone <repository_url>
-    cd rwal
-    ```
-
-2.  Build the project:
-    ```sh
-    cargo build
-    ```
-
-3.  Run the application:
-    ```sh
-    cargo run -- <command>
-    ```
+* **Blazing Fast Color Extraction**: Extracts dominant colors instantly. Offers two selectable backends:
+  * `kmeans` (Default): Uses the highly-accurate K-Means++ algorithm for perfectly balanced dominant colors. You can tune the accuracy loops using the `--accuracy N` flag.
+  * `median_cut`: An extremely fast, memory-optimized algorithm perfect for huge images or lower-end machines.
+* **Smart Palette Strategies**: Unlike standard pywal, `rwal` can generate multiple aesthetically pleasing themes based on the image's colors:
+  * `classic` (Default): Mimics the standard pywal generation formula.
+  * `adaptive`: Actively scans the image's overall median luminance. If the image is dark, it lightens and saturates the terminal colors so they pop. If the image is bright, it darkens them.
+  * `vibrant`: Takes the raw, true accent colors from the image and applies the adaptive luminance logic directly to them.
+  * `pastel`: Mutes contrast and applies a light brightness bump to create soft, pastel themes.
+  * `complementary`: Picks a vibrant base color and generates its exact mathematical complement (+180°).
+  * `split_complementary`: Takes the base color and splits the complement into a pleasing Y-shape (+150° and +210°).
+  * `analogous`: Uses perfectly adjacent colors on the wheel (-30° and +30°).
+  * `monochromatic`: Generates an entire palette from different lightness and saturation values of a single base color.
+  * `triadic`: Spaces three distinct colors out mathematically (+120° and +240°).
+* **Guaranteed Terminal Readability**: `rwal` features a built-in contrast enforcer. It actively scans the generated background (color0) and main text (color15) using standard WCAG relative luminance math. If the contrast falls below 4.5:1, `rwal` iteratively lightens or darkens the text until the terminal is perfectly readable, eliminating eye strain.
+* **Format-agnostic**: Evaluates the literal binary signatures of images rather than blindly trusting file extensions.
+* **Light Mode & Saturation Adjustments**: Instantly invert standard dark themes to light themes natively using `-l`, or shift saturation dynamically with `--saturate AMOUNT`.
+* **Caching**: Fully hashes image paths + strategies into a lightning-fast LRU file cache. Running the same wallpaper and strategy twice returns instantly.
 
 ## Usage
 
-The main command is `generate`, which takes an image path and several options.
-
-```sh
-cargo run -- generate <path_to_image> [OPTIONS]
+Generate and apply a theme from an image:
+```bash
+cargo run -- -i ~/Pictures/wallpaper.jpg
 ```
 
-### Options
-
-*   `--mode <dark|light>`: Set the theme mode (currently not implemented).
-*   `--contrast <low|medium|high>`: Set the contrast level (currently not implemented).
-*   `--backend <feh|swaybg|xwallpaper|none>`: The wallpaper backend to use. Defaults to `none`.
-*   `--apply`: Write the generated palette to `colors.json`. If not provided, the JSON is printed to stdout.
-
-### Example
-
-```sh
-cargo run -- generate ~/Pictures/my-wallpaper.png --apply --backend feh
+Change the color generation strategy:
+```bash
+cargo run -- -i ~/Pictures/wallpaper.jpg --strategy adaptive
 ```
-This command will:
-1.  Generate a color palette from `~/Pictures/my-wallpaper.png`.
-2.  Write the palette to `colors.json` in the project directory.
-3.  Set the wallpaper using `feh`.
 
-## Current State and Future Improvements
+Switch to the median cut backend:
+```bash
+cargo run -- -i ~/Pictures/wallpaper.jpg --backend median_cut
+```
 
-This is a working prototype of `rwal`. The core functionality is in place, but there are some limitations and areas for improvement.
+Skip applying the wallpaper:
+```bash
+cargo run -- -i ~/Pictures/wallpaper.jpg -n
+```
 
-### Palette Generation
+### Full Options
 
-The current implementation of the palette generator is very basic. It takes the first 4 colors from the 16 colors extracted by the color extractor.
-
-A more sophisticated approach would be to:
-*   Sort the extracted colors by luminance.
-*   Select the background and foreground colors based on contrast rules for accessibility.
-*   Select the accent and secondary colors based on saturation and hue.
-
-This would result in a much more pleasing and usable color palette. The `palette_generator.rs` module is the place to implement this logic.
+* `-i, --image <PATH>`: Image file or directory to generate colors from.
+* `-R, --restore`: Restore the last generated color scheme from cache.
+* `-l, --light`: Generate a light color scheme instead of dark.
+* `-n, --no-wallpaper`: Skip setting the wallpaper via external tools.
+* `-s, --no-sequences`: Skip applying terminal ANSI sequences and rendering templates.
+* `--backend <NAME>`: Color extraction backend. `kmeans` or `median_cut`.
+* `--accuracy <N>`: K-Means iterations (1-20). Higher is more accurate but slower. Default: 10.
+* `--strategy <NAME>`: Generation strategy (`classic`, `adaptive`, `vibrant`, `pastel`, `complementary`, `split_complementary`, `analogous`, `monochromatic`, `triadic`).
+* `--saturate <AMOUNT>`: Shift color saturation (-1.0 to 1.0).
+* `--alpha <N>`: Transparency value written to JSON exports (0-100).

@@ -1,5 +1,6 @@
 use rust_embed::Embed;
 use std::collections::HashMap;
+//use std::path::Path;
 
 use crate::colors::types::ColorDict;
 use crate::error::{warn, RwalError};
@@ -131,7 +132,7 @@ mod tests {
             std::fs::create_dir_all(&path).unwrap();
             Self { path }
         }
-        fn path(&self) -> &Path {
+        fn path(&self) -> &Path{
             &self.path
         }
     }

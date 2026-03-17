@@ -25,14 +25,13 @@ impl Backend for MedianCut {
 
         // Number of splits needed: 2^splits >= count
         let splits = (count as f32).log2().ceil() as usize;
-        let buckets = median_cut(pixels.to_vec(), splits);
-
-        let result: Vec<Rgb> = buckets
-            .iter()
-            .filter(|b| !b.is_empty())
-            .map(|b| average(b))
-            .take(count)
-            .collect();
+        
+        let mut pixels_mut = pixels.to_vec();
+        let mut result = Vec::with_capacity(count);
+        
+        median_cut(&mut pixels_mut, splits, &mut result);
+        
+        result.truncate(count);
 
         if result.is_empty() {
             return Err(RwalError::NoColorsExtracted);
@@ -43,29 +42,30 @@ impl Backend for MedianCut {
 }
 
 /// Recursively split buckets along the widest color channel.
-fn median_cut(pixels: Vec<Rgb>, depth: usize) -> Vec<Vec<Rgb>> {
+fn median_cut(pixels: &mut [Rgb], depth: usize, out: &mut Vec<Rgb>) {
     if depth == 0 || pixels.len() <= 1 {
-        return vec![pixels];
+        if !pixels.is_empty() {
+            out.push(average(pixels));
+        }
+        return;
     }
 
-    let (r_range, g_range, b_range) = channel_ranges(&pixels);
+    let (r_range, g_range, b_range) = channel_ranges(pixels);
 
     // Split along the channel with the widest range
-    let mut sorted = pixels;
     if r_range >= g_range && r_range >= b_range {
-        sorted.sort_unstable_by_key(|p| p.r);
+        pixels.sort_unstable_by_key(|p| p.r);
     } else if g_range >= r_range && g_range >= b_range {
-        sorted.sort_unstable_by_key(|p| p.g);
+        pixels.sort_unstable_by_key(|p| p.g);
     } else {
-        sorted.sort_unstable_by_key(|p| p.b);
+        pixels.sort_unstable_by_key(|p| p.b);
     }
 
-    let mid = sorted.len() / 2;
-    let (lo, hi) = sorted.split_at(mid);
+    let mid = pixels.len() / 2;
+    let (lo, hi) = pixels.split_at_mut(mid);
 
-    let mut result = median_cut(lo.to_vec(), depth - 1);
-    result.extend(median_cut(hi.to_vec(), depth - 1));
-    result
+    median_cut(lo, depth - 1, out);
+    median_cut(hi, depth - 1, out);
 }
 
 /// Returns (r_range, g_range, b_range) for a slice of pixels.

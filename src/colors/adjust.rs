@@ -47,6 +47,63 @@ pub fn invert_for_light(colors: &[Rgb; 16]) -> [Rgb; 16] {
     out
 }
 
+/// Calculate WCAG relative luminance (0.0 to 1.0)
+pub fn relative_luminance(color: &Rgb) -> f32 {
+    fn adjust_channel(c: u8) -> f32 {
+        let sc = c as f32 / 255.0;
+        if sc <= 0.03928 {
+            sc / 12.92
+        } else {
+            ((sc + 0.055) / 1.055).powf(2.4)
+        }
+    }
+    
+    let r = adjust_channel(color.r);
+    let g = adjust_channel(color.g);
+    let b = adjust_channel(color.b);
+    
+    0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+/// Calculate the contrast ratio between two colors (returns 1.0 to 21.0)
+pub fn contrast_ratio(c1: &Rgb, c2: &Rgb) -> f32 {
+    let l1 = relative_luminance(c1);
+    let l2 = relative_luminance(c2);
+    
+    let brightest = l1.max(l2);
+    let darkest = l1.min(l2);
+    
+    (brightest + 0.05) / (darkest + 0.05)
+}
+
+/// Iteratively adjust the foreground's lightness to ensure a target contrast against the background
+pub fn ensure_contrast(bg: &Rgb, fg: &Rgb, target_ratio: f32) -> Rgb {
+    let mut current_fg = *fg;
+    let mut current_ratio = contrast_ratio(bg, &current_fg);
+    
+    if current_ratio >= target_ratio {
+        return current_fg;
+    }
+    
+    let bg_lum = relative_luminance(bg);
+    // Determine if we need to make foreground lighter or darker
+    // If background is dark (luminance < 0.5), we lighten the foreground
+    let should_lighten = bg_lum < 0.5;
+    
+    let mut step = 0.0;
+    while current_ratio < target_ratio && step < 1.0 {
+        step += 0.05;
+        if should_lighten {
+            current_fg = lighten(fg, step);
+        } else {
+            current_fg = darken(fg, step);
+        }
+        current_ratio = contrast_ratio(bg, &current_fg);
+    }
+    
+    current_fg
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,5 +235,62 @@ mod tests {
 
         let result = invert_for_light(&invert_for_light(&colors));
         assert_eq!(result, colors);
+    }
+
+    // ── contrast ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_relative_luminance_black_is_zero() {
+        let black = Rgb::new(0, 0, 0);
+        assert_eq!(relative_luminance(&black), 0.0);
+    }
+
+    #[test]
+    fn test_relative_luminance_white_is_one() {
+        let white = Rgb::new(255, 255, 255);
+        assert_eq!(relative_luminance(&white), 1.0);
+    }
+
+    #[test]
+    fn test_contrast_ratio_black_and_white_is_21() {
+        let black = Rgb::new(0, 0, 0);
+        let white = Rgb::new(255, 255, 255);
+        let diff = (contrast_ratio(&black, &white) - 21.0).abs();
+        assert!(diff < 0.01, "Expected ~21.0, got {}", contrast_ratio(&black, &white));
+    }
+
+    #[test]
+    fn test_contrast_ratio_same_color_is_1() {
+        let c = Rgb::new(100, 150, 200);
+        assert_eq!(contrast_ratio(&c, &c), 1.0);
+    }
+
+    #[test]
+    fn test_ensure_contrast_lightens_dark_text_on_dark_bg() {
+        let bg = Rgb::new(10, 10, 10);
+        let fg = Rgb::new(20, 20, 20); // terrible contrast
+        
+        // This should significantly lighten the fg
+        let adjusted = ensure_contrast(&bg, &fg, 4.5);
+        assert!(contrast_ratio(&bg, &adjusted) >= 4.5);
+    }
+
+    #[test]
+    fn test_ensure_contrast_darkens_light_text_on_light_bg() {
+        let bg = Rgb::new(245, 245, 245);
+        let fg = Rgb::new(235, 235, 235); // terrible contrast
+        
+        // This should significantly darken the fg
+        let adjusted = ensure_contrast(&bg, &fg, 4.5);
+        assert!(contrast_ratio(&bg, &adjusted) >= 4.5);
+    }
+
+    #[test]
+    fn test_ensure_contrast_leaves_good_contrast_alone() {
+        let bg = Rgb::new(0, 0, 0);
+        let fg = Rgb::new(255, 255, 255); // perfect contrast
+        
+        let adjusted = ensure_contrast(&bg, &fg, 4.5);
+        assert_eq!(adjusted, fg);
     }
 }
