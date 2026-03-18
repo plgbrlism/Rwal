@@ -56,39 +56,14 @@ pub struct Cli {
     )]
     pub backend: String,
 
-    /// Number of k-means iterations (1-20, higher = more accurate but slower)
+    /// Palette generation mode
     #[arg(
-        long = "accuracy",
-        value_name = "N",
-        default_value_t = 10,
-        value_parser = clap::value_parser!(u8).range(1..=20),
-    )]
-    pub accuracy: u8,
-
-    #[arg(
-        long = "strategy",
+        long = "mode",
         value_name = "NAME",
-        default_value = "classic",
-        value_parser = ["classic", "complementary", "analogous", "monochromatic", "adaptive", "vibrant", "pastel", "split_complementary", "triadic"],
+        default_value = "adaptive",
+        value_parser = ["adaptive", "vibrant", "pastel", "classic"],
     )]
-    pub strategy: String,
-
-    /// Shift color saturation (-1.0 to 1.0)
-    #[arg(
-        long = "saturate",
-        value_name = "AMOUNT",
-        allow_negative_numbers = true,
-    )]
-    pub saturate: Option<f32>,
-
-    /// Transparency value written to colors.json (0-100)
-    #[arg(
-        long = "alpha",
-        value_name = "N",
-        default_value_t = 100,
-        value_parser = clap::value_parser!(u8).range(0..=100),
-    )]
-    pub alpha: u8,
+    pub mode: String,
 
     /// Load a saved theme by name instead of generating from image
     #[arg(long = "theme", value_name = "NAME")]

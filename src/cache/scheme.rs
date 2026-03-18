@@ -16,18 +16,16 @@ use crate::paths::Paths;
 pub fn cache_key(
     image_path: &Path,
     backend:    &str,
-    strategy:   &str,
+    mode:       &str,
     light_mode: bool,
-    saturate:   Option<f32>,
     file_size:  u64,
 ) -> String {
     let input = format!(
-        "{}|{}|{}|{}|{}|{}",
+        "{}|{}|{}|{}|{}",
         image_path.display(),
         backend,
-        strategy,
+        mode,
         light_mode,
-        saturate.unwrap_or(0.0),
         file_size,
     );
 
@@ -142,53 +140,47 @@ mod tests {
     #[test]
     fn test_cache_key_is_deterministic() {
         let p = Path::new("/home/user/wall.jpg");
-        let k1 = cache_key(p, "kmeans", "classic", false, None, 12345);
-        let k2 = cache_key(p, "kmeans", "classic", false, None, 12345);
+        let k1 = cache_key(p, "kmeans", "classic", false, 12345);
+        let k2 = cache_key(p, "kmeans", "classic", false, 12345);
         assert_eq!(k1, k2);
     }
 
     #[test]
     fn test_cache_key_differs_by_backend() {
         let p = Path::new("/home/user/wall.jpg");
-        let k1 = cache_key(p, "kmeans",     "classic", false, None, 100);
-        let k2 = cache_key(p, "median_cut", "classic", false, None, 100);
+        let k1 = cache_key(p, "kmeans",     "classic", false, 100);
+        let k2 = cache_key(p, "median_cut", "classic", false, 100);
         assert_ne!(k1, k2);
     }
 
     #[test]
     fn test_cache_key_differs_by_light_mode() {
         let p = Path::new("/home/user/wall.jpg");
-        let k1 = cache_key(p, "kmeans", "classic", false, None, 100);
-        let k2 = cache_key(p, "kmeans", "classic", true,  None, 100);
+        let k1 = cache_key(p, "kmeans", "classic", false, 100);
+        let k2 = cache_key(p, "kmeans", "classic", true,  100);
         assert_ne!(k1, k2);
     }
 
-    #[test]
-    fn test_cache_key_differs_by_saturation() {
-        let p = Path::new("/home/user/wall.jpg");
-        let k1 = cache_key(p, "kmeans", "classic", false, None,       100);
-        let k2 = cache_key(p, "kmeans", "classic", false, Some(0.5),  100);
-        assert_ne!(k1, k2);
-    }
+
 
     #[test]
     fn test_cache_key_differs_by_file_size() {
         let p = Path::new("/home/user/wall.jpg");
-        let k1 = cache_key(p, "kmeans", "classic", false, None, 100);
-        let k2 = cache_key(p, "kmeans", "classic", false, None, 999);
+        let k1 = cache_key(p, "kmeans", "classic", false, 100);
+        let k2 = cache_key(p, "kmeans", "classic", false, 999);
         assert_ne!(k1, k2);
     }
 
     #[test]
     fn test_cache_key_differs_by_path() {
-        let k1 = cache_key(Path::new("/a.jpg"), "kmeans", "classic", false, None, 100);
-        let k2 = cache_key(Path::new("/b.jpg"), "kmeans", "classic", false, None, 100);
+        let k1 = cache_key(Path::new("/a.jpg"), "kmeans", "classic", false, 100);
+        let k2 = cache_key(Path::new("/b.jpg"), "kmeans", "classic", false, 100);
         assert_ne!(k1, k2);
     }
 
     #[test]
     fn test_cache_key_is_hex_string() {
-        let key = cache_key(Path::new("/wall.jpg"), "kmeans", "classic", false, None, 0);
+        let key = cache_key(Path::new("/wall.jpg"), "kmeans", "classic", false, 0);
         assert!(key.chars().all(|c| c.is_ascii_hexdigit()));
     }
 

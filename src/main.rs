@@ -84,9 +84,8 @@ fn run(cli: Cli) -> Result<(), error::RwalError> {
         let key = cache::scheme::cache_key(
             &image_path,
             &cli.backend,
-            &cli.strategy,
+            &cli.mode,
             cli.light,
-            cli.saturate,
             file_size,
         );
 
@@ -97,14 +96,14 @@ fn run(cli: Cli) -> Result<(), error::RwalError> {
             }
             Ok(None) | Err(_) => {
                 // ── 4. Extract colors ────────────────────────────────────────
-                step(&cli, &format!("backend: {} (accuracy {})", cli.backend, cli.accuracy));
+                step(&cli, &format!("backend: {}", cli.backend));
 
                 let backend = backends::from_name(&cli.backend)?;
                 let raw = colors::extractor::extract(
                     &image_path,
                     backend.as_ref(),
                     16,
-                    cli.accuracy,
+                    10,
                 )?;
 
                 step(&cli, "colors: extracted");
@@ -113,10 +112,10 @@ fn run(cli: Cli) -> Result<(), error::RwalError> {
                 let dict = colors::palette::build(
                     raw,
                     image_path.clone(),
-                    cli.alpha,
+                    100,
                     cli.light,
-                    cli.saturate,
-                    &cli.strategy,
+                    None,
+                    &cli.mode,
                 )?;
 
                 // ── 6. Write cache ───────────────────────────────────────────

@@ -38,7 +38,7 @@ pub fn build(
     alpha: u8,
     light_mode: bool,
     saturate_amount: Option<f32>,
-    strategy: &str,
+    mode_name: &str,
 ) -> Result<ColorDict, RwalError> {
     if raw.is_empty() {
         return Err(RwalError::NoColorsExtracted);
@@ -60,17 +60,14 @@ pub fn build(
     let color15 = sorted[sorted.len() - 1];          // lightest
     let color8 = adjust::darken(&color0, 0.20);      // bright black
 
-    let accents = match strategy {
-        "complementary" => generate_complementary(&sorted),
-        "analogous" => generate_analogous(&sorted),
-        "monochromatic" => generate_monochromatic(&sorted),
-        "adaptive" => generate_adaptive(&sorted),
-        "vibrant" => generate_vibrant(&sorted),
-        "pastel" => generate_pastel(&sorted),
-        "split_complementary" => generate_split(&sorted),
-        "triadic" => generate_triadic(&sorted),
-        _ => pick_accents(&sorted, 6), // "classic" pywal style
+    let mode: Box<dyn ColorMode> = match mode_name {
+        "adaptive" => Box::new(AdaptiveMode),
+        "vibrant" => Box::new(VibrantMode),
+        "pastel" => Box::new(PastelMode),
+        _ => Box::new(ClassicMode),
     };
+
+    let accents = mode.generate(&sorted);
 
     let bright_accents: Vec<Rgb> = accents.iter().map(|c| adjust::lighten(c, 0.20)).collect();
 
@@ -126,217 +123,105 @@ fn find_vibrant_base(sorted: &[Rgb]) -> Rgb {
     }
     best
 }
-
-/// Smart strategy: Complementary
-/// Picks a vibrant base, generates its complement, and maps them to the 6 accent slots.
-fn generate_complementary(sorted: &[Rgb]) -> Vec<Rgb> {
-    let base = find_vibrant_base(sorted);
-    let base_hsl = base.to_hsl();
-    
-    // Complementary hue is +180 degrees
-    let mut comp_hsl = base_hsl;
-    use palette::ShiftHue;
-    comp_hsl = comp_hsl.shift_hue(180.0);
-    
-    let base_rgb = Rgb::from_hsl(base_hsl);
-    let comp_rgb = Rgb::from_hsl(comp_hsl);
-    
-    // Interleave base and complementary, slightly varying lightness
-    vec![
-        base_rgb,
-        adjust::darken(&comp_rgb, 0.1),
-        adjust::lighten(&base_rgb, 0.1),
-        comp_rgb,
-        adjust::darken(&base_rgb, 0.15),
-        adjust::lighten(&comp_rgb, 0.15),
-    ]
+/// Unified Trait for Palette Generation Modes
+pub trait ColorMode {
+    fn generate(&self, sorted: &[Rgb]) -> Vec<Rgb>;
 }
 
-/// Smart strategy: Analogous
-/// Picks a vibrant base and finds neighbors (-30, +30 degrees in hue).
-fn generate_analogous(sorted: &[Rgb]) -> Vec<Rgb> {
-    let base = find_vibrant_base(sorted);
-    let base_hsl = base.to_hsl();
-    
-    use palette::ShiftHue;
-    let anal1 = Rgb::from_hsl(base_hsl.shift_hue(-30.0));
-    let anal2 = Rgb::from_hsl(base_hsl.shift_hue(30.0));
-    let anal3 = Rgb::from_hsl(base_hsl.shift_hue(-60.0));
-    
-    vec![
-        base,
-        anal1,
-        anal2,
-        adjust::lighten(&base, 0.1),
-        anal3,
-        adjust::darken(&anal1, 0.1),
-    ]
-}
-
-/// Smart strategy: Monochromatic
-/// Creates an entire palette from varying lightnesses and slightly modifying saturations of one base color.
-fn generate_monochromatic(sorted: &[Rgb]) -> Vec<Rgb> {
-    let base = find_vibrant_base(sorted);
-    
-    vec![
-        adjust::darken(&base, 0.3),
-        adjust::darken(&base, 0.15),
-        base,
-        adjust::lighten(&base, 0.15),
-        adjust::lighten(&base, 0.3),
-        adjust::saturate(&base, -0.3),
-    ]
-}
-
-/// Smart strategy: Adaptive
+/// Smart strategy: Adaptive (Default)
 /// Scans the median luminance of all colors. 
 /// The darker the image, the more it lightens and saturates the accents.
 /// The lighter the image, the more it darkens the accents.
-fn generate_adaptive(sorted: &[Rgb]) -> Vec<Rgb> {
-    let base = find_vibrant_base(sorted);
-    
-    let mut lums: Vec<f32> = sorted.iter().map(|c| adjust::relative_luminance(c)).collect();
-    lums.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let median_lum = if lums.is_empty() { 0.0 } else { lums[lums.len() / 2] };
-    
-    // Calculate shifts relative to a neutral 0.5 luminance
-    let lightness_shift = (0.5 - median_lum) * 0.6;
-    let saturation_boost = (0.5 - median_lum).max(0.0) * 0.5;
+pub struct AdaptiveMode;
+impl ColorMode for AdaptiveMode {
+    fn generate(&self, sorted: &[Rgb]) -> Vec<Rgb> {
+        let base = find_vibrant_base(sorted);
+        
+        let mut lums: Vec<f32> = sorted.iter().map(|c| adjust::relative_luminance(c)).collect();
+        lums.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let median_lum = if lums.is_empty() { 0.0 } else { lums[lums.len() / 2] };
+        
+        // Calculate shifts relative to a neutral 0.5 luminance
+        let lightness_shift = (0.5 - median_lum) * 0.6;
+        let saturation_boost = (0.5 - median_lum).max(0.0) * 0.5;
 
-    let base_adj = if lightness_shift > 0.0 {
-        adjust::saturate(&adjust::lighten(&base, lightness_shift), saturation_boost)
-    } else {
-        adjust::darken(&base, -lightness_shift) // If light, just darken it for contrast
-    };
-    
-    let base_hsl = base_adj.to_hsl();
-    use palette::ShiftHue;
-    
-    // Create an analogous and complementary mix for a visually appealing harmonic spread
-    vec![
-        base_adj,
-        Rgb::from_hsl(base_hsl.shift_hue(30.0)),
-        Rgb::from_hsl(base_hsl.shift_hue(-30.0)),
-        Rgb::from_hsl(base_hsl.shift_hue(150.0)),
-        Rgb::from_hsl(base_hsl.shift_hue(180.0)),
-        Rgb::from_hsl(base_hsl.shift_hue(210.0)),
-    ]
+        let base_adj = if lightness_shift > 0.0 {
+            adjust::saturate(&adjust::lighten(&base, lightness_shift), saturation_boost)
+        } else {
+            adjust::darken(&base, -lightness_shift) // If light, just darken it for contrast
+        };
+        
+        let base_hsl = base_adj.to_hsl();
+        use palette::ShiftHue;
+        
+        // Create an analogous and complementary mix for a visually appealing harmonic spread
+        vec![
+            base_adj,
+            Rgb::from_hsl(base_hsl.shift_hue(30.0)),
+            Rgb::from_hsl(base_hsl.shift_hue(-30.0)),
+            Rgb::from_hsl(base_hsl.shift_hue(150.0)),
+            Rgb::from_hsl(base_hsl.shift_hue(180.0)),
+            Rgb::from_hsl(base_hsl.shift_hue(210.0)),
+        ]
+    }
 }
 
-/// Smart strategy: Vibrant (Upgraded monochrome)
+/// Smart strategy: Vibrant
 /// Takes the 6 most distinct accent colors from the image,
-/// and applies the adaptive luminance logic directly to them,
-/// making the real wallpaper colors drastically more vibrant and readable.
-fn generate_vibrant(sorted: &[Rgb]) -> Vec<Rgb> {
-    let raw_accents = pick_accents(sorted, 6);
-    
-    let mut lums: Vec<f32> = sorted.iter().map(|c| adjust::relative_luminance(c)).collect();
-    lums.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let median_lum = if lums.is_empty() { 0.0 } else { lums[lums.len() / 2] };
-    
-    // Calculate shifts relative to a neutral 0.5 luminance
-    let lightness_shift = (0.5 - median_lum) * 0.6;
-    let saturation_boost = (0.5 - median_lum).max(0.0) * 0.5;
+/// and applies the adaptive luminance logic directly to them.
+pub struct VibrantMode;
+impl ColorMode for VibrantMode {
+    fn generate(&self, sorted: &[Rgb]) -> Vec<Rgb> {
+        let raw_accents = pick_accents(sorted, 6);
+        
+        let mut lums: Vec<f32> = sorted.iter().map(|c| adjust::relative_luminance(c)).collect();
+        lums.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let median_lum = if lums.is_empty() { 0.0 } else { lums[lums.len() / 2] };
+        
+        let lightness_shift = (0.5 - median_lum) * 0.6;
+        let saturation_boost = (0.5 - median_lum).max(0.0) * 0.5;
 
-    raw_accents.into_iter().map(|c| {
-        if lightness_shift > 0.0 {
-            adjust::saturate(&adjust::lighten(&c, lightness_shift), saturation_boost)
-        } else {
-            adjust::darken(&c, -lightness_shift)
-        }
-    }).collect()
+        raw_accents.into_iter().map(|c| {
+            if lightness_shift > 0.0 {
+                adjust::saturate(&adjust::lighten(&c, lightness_shift), saturation_boost)
+            } else {
+                adjust::darken(&c, -lightness_shift)
+            }
+        }).collect()
+    }
 }
 
 /// Smart strategy: Pastel
 /// Takes the raw colors and flattens out their contrast, returning desaturated pastel tones.
-/// Uses the adaptive logic so the pastels are always visible on the selected terminal bg.
-fn generate_pastel(sorted: &[Rgb]) -> Vec<Rgb> {
-    let raw_accents = pick_accents(sorted, 6);
-    
-    let mut lums: Vec<f32> = sorted.iter().map(|c| adjust::relative_luminance(c)).collect();
-    lums.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let median_lum = if lums.is_empty() { 0.0 } else { lums[lums.len() / 2] };
-    
-    let lightness_shift = (0.5 - median_lum) * 0.6;
-    
-    raw_accents.into_iter().map(|c| {
-        // Flat, muted saturation
-        let muted = adjust::saturate(&c, -0.3);
-        // Adaptive lightness
-        if lightness_shift > 0.0 {
-            adjust::lighten(&muted, lightness_shift + 0.1) // slightly extra bright for pastel look
-        } else {
-            adjust::darken(&muted, -lightness_shift)
-        }
-    }).collect()
+pub struct PastelMode;
+impl ColorMode for PastelMode {
+    fn generate(&self, sorted: &[Rgb]) -> Vec<Rgb> {
+        let raw_accents = pick_accents(sorted, 6);
+        
+        let mut lums: Vec<f32> = sorted.iter().map(|c| adjust::relative_luminance(c)).collect();
+        lums.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let median_lum = if lums.is_empty() { 0.0 } else { lums[lums.len() / 2] };
+        
+        let lightness_shift = (0.5 - median_lum) * 0.6;
+        
+        raw_accents.into_iter().map(|c| {
+            let muted = adjust::saturate(&c, -0.3);
+            if lightness_shift > 0.0 {
+                adjust::lighten(&muted, lightness_shift + 0.1)
+            } else {
+                adjust::darken(&muted, -lightness_shift)
+            }
+        }).collect()
+    }
 }
 
-/// Smart strategy: Split Complementary
-/// Finds a base and splits its complement (+150 and +210 deg), utilizing the adaptive visibility check.
-fn generate_split(sorted: &[Rgb]) -> Vec<Rgb> {
-    let base = find_vibrant_base(sorted);
-    
-    let mut lums: Vec<f32> = sorted.iter().map(|c| adjust::relative_luminance(c)).collect();
-    lums.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let median_lum = if lums.is_empty() { 0.0 } else { lums[lums.len() / 2] };
-    
-    let lightness_shift = (0.5 - median_lum) * 0.6;
-    let saturation_boost = (0.5 - median_lum).max(0.0) * 0.5;
-
-    let base_adj = if lightness_shift > 0.0 {
-        adjust::saturate(&adjust::lighten(&base, lightness_shift), saturation_boost)
-    } else {
-        adjust::darken(&base, -lightness_shift)
-    };
-    
-    let base_hsl = base_adj.to_hsl();
-    use palette::ShiftHue;
-    
-    let split_1 = Rgb::from_hsl(base_hsl.shift_hue(150.0));
-    let split_2 = Rgb::from_hsl(base_hsl.shift_hue(210.0));
-    
-    vec![
-        base_adj,
-        split_1,
-        split_2,
-        adjust::lighten(&base_adj, 0.15),
-        adjust::lighten(&split_1, 0.15),
-        adjust::lighten(&split_2, 0.15),
-    ]
-}
-
-/// Smart strategy: Triadic
-/// Finds a base and casts a triangle (+120 and +240 deg) across the wheel with adaptive scaling.
-fn generate_triadic(sorted: &[Rgb]) -> Vec<Rgb> {
-    let base = find_vibrant_base(sorted);
-    
-    let mut lums: Vec<f32> = sorted.iter().map(|c| adjust::relative_luminance(c)).collect();
-    lums.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let median_lum = if lums.is_empty() { 0.0 } else { lums[lums.len() / 2] };
-    
-    let lightness_shift = (0.5 - median_lum) * 0.6;
-    let saturation_boost = (0.5 - median_lum).max(0.0) * 0.5;
-
-    let base_adj = if lightness_shift > 0.0 {
-        adjust::saturate(&adjust::lighten(&base, lightness_shift), saturation_boost)
-    } else {
-        adjust::darken(&base, -lightness_shift)
-    };
-    
-    let base_hsl = base_adj.to_hsl();
-    use palette::ShiftHue;
-    
-    let tri_1 = Rgb::from_hsl(base_hsl.shift_hue(120.0));
-    let tri_2 = Rgb::from_hsl(base_hsl.shift_hue(240.0));
-    
-    vec![
-        base_adj,
-        tri_1,
-        tri_2,
-        adjust::darken(&base_adj, 0.2),
-        adjust::saturate(&tri_1, 0.2),
-        adjust::saturate(&tri_2, 0.2),
-    ]
+/// Smart strategy: Classic
+/// Matches standard Pywal behavior.
+pub struct ClassicMode;
+impl ColorMode for ClassicMode {
+    fn generate(&self, sorted: &[Rgb]) -> Vec<Rgb> {
+        pick_accents(sorted, 6)
+    }
 }
 
 /// Pick `n` accent colors spread across the middle range of sorted colors (pywal classic).

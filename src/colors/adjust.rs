@@ -78,30 +78,51 @@ pub fn contrast_ratio(c1: &Rgb, c2: &Rgb) -> f32 {
 
 /// Iteratively adjust the foreground's lightness to ensure a target contrast against the background
 pub fn ensure_contrast(bg: &Rgb, fg: &Rgb, target_ratio: f32) -> Rgb {
-    let mut current_fg = *fg;
-    let mut current_ratio = contrast_ratio(bg, &current_fg);
-    
+    let current_ratio = contrast_ratio(bg, fg);
     if current_ratio >= target_ratio {
-        return current_fg;
+        return *fg;
     }
     
-    let bg_lum = relative_luminance(bg);
-    // Determine if we need to make foreground lighter or darker
-    // If background is dark (luminance < 0.5), we lighten the foreground
-    let should_lighten = bg_lum < 0.5;
+    let l_bg = relative_luminance(bg);
     
-    let mut step = 0.0;
-    while current_ratio < target_ratio && step < 1.0 {
-        step += 0.05;
-        if should_lighten {
-            current_fg = lighten(fg, step);
-        } else {
-            current_fg = darken(fg, step);
-        }
-        current_ratio = contrast_ratio(bg, &current_fg);
+    // Direct algebra to find target relative luminance, with a small epsilon
+    // to guarantee the contrast_ratio passes after 8-bit RGB truncation
+    let target_l_fg = if l_bg < 0.5 {
+        target_ratio * (l_bg + 0.05) - 0.05 + 0.005
+    } else {
+        (l_bg + 0.05) / target_ratio - 0.05 - 0.005
+    }.clamp(0.0, 1.0);
+
+    fn linearize(c: u8) -> f32 {
+        let sc = c as f32 / 255.0;
+        if sc <= 0.03928 { sc / 12.92 } else { ((sc + 0.055) / 1.055).powf(2.4) }
     }
     
-    current_fg
+    fn unlinearize(l: f32) -> u8 {
+        let sc = if l <= 0.0031308 { l * 12.92 } else { 1.055 * l.powf(1.0 / 2.4) - 0.055 };
+        (sc.clamp(0.0, 1.0) * 255.0).round() as u8
+    }
+
+    let mut r_lin = linearize(fg.r);
+    let mut g_lin = linearize(fg.g);
+    let mut b_lin = linearize(fg.b);
+    let l_fg = 0.2126 * r_lin + 0.7152 * g_lin + 0.0722 * b_lin;
+
+    // If perfectly black, just scale white up
+    if l_fg < 0.0001 {
+        r_lin = 1.0; g_lin = 1.0; b_lin = 1.0;
+    }
+
+    // Scale linearly
+    let l_fg = l_fg.max(0.001);
+    let scale = target_l_fg / l_fg;
+
+    // We can overshoot 1.0, unlinearize clamps it
+    Rgb::new(
+        unlinearize(r_lin * scale),
+        unlinearize(g_lin * scale),
+        unlinearize(b_lin * scale)
+    )
 }
 
 #[cfg(test)]
