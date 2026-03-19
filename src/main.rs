@@ -114,7 +114,6 @@ fn run(cli: Cli) -> Result<(), error::RwalError> {
                     image_path.clone(),
                     100,
                     cli.light,
-                    None,
                     &cli.mode,
                 )?;
 
@@ -191,28 +190,22 @@ fn step(cli: &Cli, msg: &str) {
     }
 }
  
-/// Print all 16 colors as colored blocks with hex values.
+/// Print all 16 colors as colored blocks with hex values natively overlaid inside.
 fn print_palette(colors: &[Rgb; 16]) {
     println!();
  
-    // Top row: color blocks
-    for (i, color) in colors.iter().enumerate() {
-        print!(
-            "\x1b[48;2;{};{};{}m  \x1b[0m",
-            color.r, color.g, color.b
-        );
-        if i == 7 {
-            println!();
+    for row in 0..4 {
+        for col in 0..4 {
+            let c = &colors[row * 4 + col];
+            let fg = if crate::colors::adjust::relative_luminance(c) > 0.5 {
+                "\x1b[38;2;0;0;0m" // Black text on bright blocks
+            } else {
+                "\x1b[38;2;255;255;255m" // White text on dark blocks
+            };
+            
+            print!("\x1b[48;2;{};{};{}m{} {} \x1b[0m", c.r, c.g, c.b, fg, c.to_hex());
         }
-    }
-    println!();
- 
-    // Bottom row: hex values
-    for (i, color) in colors.iter().enumerate() {
-        print!("{} ", color.to_hex());
-        if i == 7 {
-            println!();
-        }
+        println!();
     }
     println!();
 }

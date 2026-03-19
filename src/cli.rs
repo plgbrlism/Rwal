@@ -60,7 +60,7 @@ pub struct Cli {
     #[arg(
         long = "mode",
         value_name = "NAME",
-        default_value = "adaptive",
+        default_value = "classic",
         value_parser = ["adaptive", "vibrant", "pastel", "classic"],
     )]
     pub mode: String,

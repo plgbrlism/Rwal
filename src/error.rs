@@ -92,7 +92,7 @@ impl fmt::Display for RwalError {
 
             // Theme
             RwalError::ThemeNotFound(name) =>
-                write!(f, "Theme '{name}' not found — check colorschemes/dark/ or colorschemes/light/"),
+                write!(f, "Theme '{name}' not found — check ~/.config/rwal/themes/"),
             RwalError::ThemeCorrupted(name) =>
                 write!(f, "Theme '{name}' could not be parsed — check JSON structure"),
 

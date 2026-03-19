@@ -37,7 +37,6 @@ pub fn build(
     wallpaper: PathBuf,
     alpha: u8,
     light_mode: bool,
-    saturate_amount: Option<f32>,
     mode_name: &str,
 ) -> Result<ColorDict, RwalError> {
     if raw.is_empty() {
@@ -81,21 +80,22 @@ pub fn build(
     colors[8]  = color8;
     colors[15] = color15;
 
-    // Apply saturation shift if requested
-    if let Some(amount) = saturate_amount {
-        colors = adjust::saturate_all(&colors, amount);
-    }
-
     // Apply light mode inversion if requested
     if light_mode {
         colors = adjust::invert_for_light(&colors);
     }
 
     // Enforce readability contrast (WCAG 4.5:1 minimum)
-    // The background is colors[0], primary text is colors[15]
+    // By default, we guarantee the primary and secondary foreground are readable.
     colors[15] = adjust::ensure_contrast(&colors[0], &colors[15], 4.5);
-    // Also ensure near-lightest (frequently used as alt foreground) is readable
     colors[7] = adjust::ensure_contrast(&colors[0], &colors[7], 4.5);
+
+    // Enforce contrast for all 16 colors against the background (color0)
+    // to guarantee consistent accessibility across all themes and wallpapers.
+    for i in 1..=6 {
+        colors[i] = adjust::ensure_contrast(&colors[0], &colors[i], 4.5);
+        colors[i + 8] = adjust::ensure_contrast(&colors[0], &colors[i + 8], 4.5);
+    }
 
     let special = Special {
         background: colors[0],
@@ -281,14 +281,14 @@ mod tests {
     #[test]
     fn test_build_returns_16_colors() {
         let raw = flat_palette(16);
-        let dict = build(raw, dummy_path(), 100, false, None, "classic").unwrap();
+        let dict = build(raw, dummy_path(), 100, false, "classic").unwrap();
         assert_eq!(dict.colors.len(), 16);
     }
 
     #[test]
     fn test_build_empty_raw_errors() {
         assert!(matches!(
-            build(vec![], dummy_path(), 100, false, None, "classic"),
+            build(vec![], dummy_path(), 100, false, "classic"),
             Err(RwalError::NoColorsExtracted)
         ));
     }
@@ -297,7 +297,7 @@ mod tests {
     fn test_build_wallpaper_and_alpha_preserved() {
         let raw = flat_palette(16);
         let path = PathBuf::from("/home/user/wall.png");
-        let dict = build(raw, path.clone(), 80, false, None, "classic").unwrap();
+        let dict = build(raw, path.clone(), 80, false, "classic").unwrap();
         assert_eq!(dict.wallpaper, path);
         assert_eq!(dict.alpha, 80);
     }
@@ -307,7 +307,7 @@ mod tests {
     #[test]
     fn test_color0_is_darkest() {
         let raw = flat_palette(16);
-        let dict = build(raw, dummy_path(), 100, false, None, "classic").unwrap();
+        let dict = build(raw, dummy_path(), 100, false, "classic").unwrap();
         // color0 should be the darkest in dark mode
         assert!(dict.colors[0].luminance() <= dict.colors[7].luminance());
         assert!(dict.colors[0].luminance() <= dict.colors[15].luminance());
@@ -316,7 +316,7 @@ mod tests {
     #[test]
     fn test_color15_is_brightest() {
         let raw = flat_palette(16);
-        let dict = build(raw, dummy_path(), 100, false, None, "classic").unwrap();
+        let dict = build(raw, dummy_path(), 100, false, "classic").unwrap();
         assert!(dict.colors[15].luminance() >= dict.colors[0].luminance());
         assert!(dict.colors[15].luminance() >= dict.colors[7].luminance());
     }
@@ -324,14 +324,14 @@ mod tests {
     #[test]
     fn test_color8_is_darker_than_color0() {
         let raw = flat_palette(16);
-        let dict = build(raw, dummy_path(), 100, false, None, "classic").unwrap();
+        let dict = build(raw, dummy_path(), 100, false, "classic").unwrap();
         assert!(dict.colors[8].luminance() <= dict.colors[0].luminance() + 1.0);
     }
 
     #[test]
     fn test_bright_accents_lighter_than_base_accents() {
         let raw = flat_palette(16);
-        let dict = build(raw, dummy_path(), 100, false, None, "classic").unwrap();
+        let dict = build(raw, dummy_path(), 100, false, "classic").unwrap();
         for i in 1..=6 {
             assert!(
                 dict.colors[i + 8].luminance() >= dict.colors[i].luminance() - 1.0,
@@ -345,21 +345,21 @@ mod tests {
     #[test]
     fn test_special_background_equals_color0() {
         let raw = flat_palette(16);
-        let dict = build(raw, dummy_path(), 100, false, None, "classic").unwrap();
+        let dict = build(raw, dummy_path(), 100, false, "classic").unwrap();
         assert_eq!(dict.special.background, dict.colors[0]);
     }
 
     #[test]
     fn test_special_foreground_equals_color15() {
         let raw = flat_palette(16);
-        let dict = build(raw, dummy_path(), 100, false, None, "classic").unwrap();
+        let dict = build(raw, dummy_path(), 100, false, "classic").unwrap();
         assert_eq!(dict.special.foreground, dict.colors[15]);
     }
 
     #[test]
     fn test_special_cursor_equals_color15() {
         let raw = flat_palette(16);
-        let dict = build(raw, dummy_path(), 100, false, None, "classic").unwrap();
+        let dict = build(raw, dummy_path(), 100, false, "classic").unwrap();
         assert_eq!(dict.special.cursor, dict.colors[15]);
     }
 
@@ -368,8 +368,8 @@ mod tests {
     #[test]
     fn test_light_mode_inverts_background_and_foreground() {
         let raw = flat_palette(16);
-        let dark  = build(raw.clone(), dummy_path(), 100, false, None, "classic").unwrap();
-        let light = build(raw,         dummy_path(), 100, true,  None, "classic").unwrap();
+        let dark  = build(raw.clone(), dummy_path(), 100, false, "classic").unwrap();
+        let light = build(raw,         dummy_path(), 100, true,  "classic").unwrap();
         // In light mode color0 (background) should be brighter than dark mode
         assert!(light.colors[0].luminance() > dark.colors[0].luminance());
     }
@@ -377,8 +377,8 @@ mod tests {
     #[test]
     fn test_light_mode_color0_equals_dark_color15() {
         let raw = flat_palette(16);
-        let dark  = build(raw.clone(), dummy_path(), 100, false, None, "classic").unwrap();
-        let light = build(raw,         dummy_path(), 100, true,  None, "classic").unwrap();
+        let dark  = build(raw.clone(), dummy_path(), 100, false, "classic").unwrap();
+        let light = build(raw,         dummy_path(), 100, true,  "classic").unwrap();
         assert_eq!(light.colors[0], dark.colors[15]);
     }
 
@@ -387,27 +387,30 @@ mod tests {
     #[test]
     fn test_build_with_single_color_does_not_panic() {
         let raw = vec![Rgb::new(100, 150, 200)];
-        let result = build(raw, dummy_path(), 100, false, None, "classic");
+        let result = build(raw, dummy_path(), 100, false, "classic");
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_build_with_two_colors_does_not_panic() {
         let raw = vec![Rgb::new(20, 20, 20), Rgb::new(200, 200, 200)];
-        let result = build(raw, dummy_path(), 100, false, None, "classic");
+        let result = build(raw, dummy_path(), 100, false, "classic");
         assert!(result.is_ok());
     }
 
-    // ── saturation ───────────────────────────────────────────────────────────
+    // ── accessible ───────────────────────────────────────────────────────────
 
     #[test]
-    fn test_saturate_amount_applied() {
+    fn test_accessibility_is_enforced_by_default() {
         let raw = flat_palette(16);
-        let normal   = build(raw.clone(), dummy_path(), 100, false, None, "classic").unwrap();
-        let saturated = build(raw,        dummy_path(), 100, false, Some(0.5), "classic").unwrap();
-        // at least some color should differ
-        let any_diff = normal.colors.iter().zip(saturated.colors.iter())
-            .any(|(a, b)| a != b);
-        assert!(any_diff, "saturate should change at least one color");
+        // build() no longer takes the accessible flag, it's always on.
+        let dict = build(raw, dummy_path(), 100, false, "classic").unwrap();
+        
+        // Everything except color0 and color8 should hit the 4.5 contrast wall
+        for i in 1..=15 {
+            if i == 8 { continue; }
+            let cr = adjust::contrast_ratio(&dict.colors[0], &dict.colors[i]);
+            assert!(cr >= 4.4, "Color{} failed contrast check. Ratio: {}", i, cr);
+        }
     }
 }

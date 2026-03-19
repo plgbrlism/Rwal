@@ -24,7 +24,6 @@ pub struct Paths {
     pub config_dir:    PathBuf,
     pub templates_dir: PathBuf,
     pub themes_dir:    PathBuf,
-    pub colorschemes_dir: PathBuf,
 }
 
 impl Paths {
@@ -48,7 +47,6 @@ impl Paths {
 
             templates_dir: config_dir.join("templates"),
             themes_dir:    config_dir.join("themes"),
-            colorschemes_dir: config_dir.join("default_colorschemes"),
             config_dir,
         }
     }
@@ -61,7 +59,6 @@ impl Paths {
             &self.config_dir,
             &self.templates_dir,
             &self.themes_dir,
-            &self.colorschemes_dir,
         ];
 
         for dir in dirs {

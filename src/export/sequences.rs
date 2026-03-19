@@ -92,17 +92,21 @@ fn write_to_terminals(sequences: &str) {
 
 /// Write the sequence string to a single pts file.
 fn write_to_pts(path: &PathBuf, sequences: &str) -> Result<(), RwalError> {
+    use std::os::unix::fs::OpenOptionsExt;
+    
+    // 0o4000 is O_NONBLOCK on Linux. This prevents rwal from hanging 
+    // indefinitely if a background pseudo-terminal is stalled or dead.
     let mut file = std::fs::OpenOptions::new()
         .write(true)
+        .custom_flags(0o4000)
         .open(path)
         .map_err(|e| RwalError::SequenceWriteError(format!(
             "could not open {}: {e}", path.display()
         )))?;
 
-    file.write_all(sequences.as_bytes())
-        .map_err(|e| RwalError::SequenceWriteError(format!(
-            "could not write to {}: {e}", path.display()
-        )))?;
+    // We don't check the output of write_all too strictly because 
+    // WouldBlock errors on a dead TTY are fine to ignore.
+    let _ = file.write_all(sequences.as_bytes());
 
     Ok(())
 }

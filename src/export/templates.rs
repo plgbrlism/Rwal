@@ -1,4 +1,4 @@
-use rust_embed::Embed;
+use rust_embed::RustEmbed;
 use std::collections::HashMap;
 //use std::path::Path;
 
@@ -10,7 +10,7 @@ use crate::paths::Paths;
 /// To add a new bundled template, just drop the file into the `templates/`
 /// directory at the project root — it will be picked up automatically.
 /// See `templates/CONTRIBUTING.md` for full instructions.
-#[derive(Embed)]
+#[derive(RustEmbed)]
 #[folder = "templates/"]
 #[exclude = "*.md"] // Don't ship docs as templates
 struct BundledTemplates;

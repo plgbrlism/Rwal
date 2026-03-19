@@ -1,10 +1,10 @@
-/// Load a named theme from `colorschemes/dark/` or `colorschemes/light/`
+/// Load a named theme from `themes/dark/` or `themes/light/`
 /// and deserialize it into a `ColorDict`.
 ///
 /// Resolution order:
-///   1. `~/.config/rwal/default_colorschemes/dark/<name>.json`
-///   2. `~/.config/rwal/default_colorschemes/light/<name>.json`
-///   3. Bundled colorschemes embedded at compile time (same subfolder logic)
+///   1. `~/.config/rwal/themes/dark/<name>.json`
+///   2. `~/.config/rwal/themes/light/<name>.json`
+///   3. Bundled themes embedded at compile time (same subfolder logic)
 ///
 /// Returns `RwalError::ThemeNotFound` if the name doesn't match anything.
 
@@ -15,29 +15,29 @@ use crate::error::RwalError;
 use crate::paths::Paths;
 
 #[derive(RustEmbed)]
-#[folder = "default_colorschemes/"]
+#[folder = "themes/"]
 #[exclude = "*.md"]
-struct BundledColorschemes;
+struct BundledThemes;
 
-/// Load a named theme from `default_colorschemes/`.
+/// Load a named theme from `themes/`.
 ///
 /// Resolution order:
-///   1. `~/.config/rwal/default_colorschemes/<name>.json`  (user wins)
-///   2. Bundled colorschemes embedded at compile time
+///   1. `~/.config/rwal/themes/<name>.json`  (user wins)
+///   2. Bundled themes embedded at compile time
 ///
 /// Returns `RwalError::ThemeNotFound` if the name matches nothing.
 pub fn load(paths: &Paths, name: &str) -> Result<ColorDict, RwalError> {
     let name = name.trim_end_matches(".json");
 
-    // 1. User colorschemes dir
-    let user_path = paths.colorschemes_dir.join(format!("{name}.json"));
+    // 1. User themes dir
+    let user_path = paths.themes_dir.join(format!("{name}.json"));
     if user_path.is_file() {
         return read_theme_file(&user_path);
     }
 
-    // 2. Bundled (embedded) colorschemes
+    // 2. Bundled (embedded) themes
     let key = format!("{name}.json");
-    if let Some(file) = BundledColorschemes::get(&key) {
+    if let Some(file) = BundledThemes::get(&key) {
         let contents = std::str::from_utf8(file.data.as_ref())
             .map_err(|_| RwalError::ThemeNotFound(name.to_string()))?;
         return parse_theme(contents, name);
@@ -101,8 +101,8 @@ pub fn list_all(paths: &Paths) {
 
     // Collect user themes first so we know which bundled ones are overridden
     let mut user_themes: Vec<String> = Vec::new();
-    if paths.colorschemes_dir.is_dir() {
-        if let Ok(entries) = std::fs::read_dir(&paths.colorschemes_dir) {
+    if paths.themes_dir.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(&paths.themes_dir) {
             for entry in entries.filter_map(|e| e.ok()) {
                 let path = entry.path();
                 if path.extension().and_then(|e| e.to_str()) == Some("json") {
@@ -116,7 +116,7 @@ pub fn list_all(paths: &Paths) {
     }
 
     // Print bundled themes (skip if overridden by user)
-    let mut bundled: Vec<String> = BundledColorschemes::iter()
+    let mut bundled: Vec<String> = BundledThemes::iter()
         .filter_map(|f| {
             let name = f.trim_end_matches(".json").to_string();
             if seen.contains(&name) { None } else { Some(name) }
