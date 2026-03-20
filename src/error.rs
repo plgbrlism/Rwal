@@ -50,6 +50,7 @@ pub enum RwalError {
     HomeDirNotFound,
     CreateDirFailed(PathBuf, String),
     IoError(String),
+    Custom(String),
 }
 
 impl fmt::Display for RwalError {
@@ -109,6 +110,8 @@ impl fmt::Display for RwalError {
                 write!(f, "Could not create directory {}: {msg}", p.display()),
             RwalError::IoError(msg) =>
                 write!(f, "IO error: {msg}"),
+            RwalError::Custom(msg) =>
+                write!(f, "{msg}"),
         }
     }
 }

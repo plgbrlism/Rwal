@@ -7,10 +7,11 @@ parse cli args
 → check cache (cache::scheme)
 → if miss: extract colors (colors::extractor) → adjust palette (colors::palette)
 → write cache
-→ write colors.json (export::colors_json)
+→ write base16-colors.json  (export::colors_json::write_base16)
+→ write semantic-colors.json (export::colors_json::write_semantic)
 → render templates (export::templates)          [unless -s skipped]
 → send sequences (export::sequences)            [unless -s skipped]
-→ set wallpaper (wallpaper)                     [unless -n skipped]
+→ set wallpaper (wallpaper)                     [only with --wallpaper]
 */
 
 mod error;
@@ -45,7 +46,7 @@ fn main() {
 fn run(cli: Cli) -> Result<(), error::RwalError> {
     // ── 1. Setup paths ───────────────────────────────────────────────────────
     let paths = paths::Paths::resolve()?;
-    paths.ensure_dirs()?;
+    paths.ensure_config()?;
 
     // Handle --list-themes and --list-backends before doing any work
     if cli.list_themes {
@@ -57,7 +58,21 @@ fn run(cli: Cli) -> Result<(), error::RwalError> {
         return Ok(());
     }
 
-    // ── 2. Resolve ColorDict ─────────────────────────────────────────────────
+    // ── 2. Handle standalone generate (no new palette) ────────────────────────
+    if let Some(ref app_opt) = cli.generate {
+        if cli.image.is_none() && cli.theme.is_none() && !cli.restore {
+            let dict = export::colors_json::read(&paths)?;
+            let semantic = colors::semantic::from_dict(&dict);
+            match app_opt {
+                Some(app) => export::generate::render_one(&paths, &semantic, app)?,
+                None => export::generate::render_all(&paths, &semantic)?,
+            }
+            step(&cli, "generated configs from cache (no new palette)");
+            return Ok(());
+        }
+    }
+
+    // ── 3. Resolve ColorDict ─────────────────────────────────────────────────
     let dict = if let Some(name) = &cli.theme {
         // --theme: skip image extraction entirely, load from colorschemes/
         let dict = export::theme::load(&paths, name)?;
@@ -127,9 +142,15 @@ fn run(cli: Cli) -> Result<(), error::RwalError> {
         }
     };
 
-    // ── 7. Write colors.json ─────────────────────────────────────────────────
-    export::colors_json::write(&paths, &dict)?;
-    step(&cli, "wrote: ~/.cache/rwal/colors.json");
+    // ── 7. Write dual JSON outputs ──────────────────────────────────────────
+    export::colors_json::write_base16(&paths, &dict)?;
+    step(&cli, "wrote: base16-colors.json");
+
+    if let Err(e) = export::colors_json::write_semantic(&paths, &dict) {
+        warn(&e);
+    } else {
+        step(&cli, "wrote: semantic-colors.json");
+    }
 
     // ── 8. Render templates + sequences ─────────────────────────────────────
     if !cli.no_sequences {
@@ -156,6 +177,23 @@ fn run(cli: Cli) -> Result<(), error::RwalError> {
     // ── 10. Print palette ────────────────────────────────────────────────────
     if !cli.quiet {
         print_palette(&dict.colors);
+    }
+
+    // ── 11. Generate app configs (opt-in via -g / --generate) ────────────────
+    if let Some(ref app_opt) = cli.generate {
+        // Read the semantic dict back from disk (or derive it from in-memory dict)
+        let semantic = colors::semantic::from_dict(&dict);
+        
+        match app_opt {
+            Some(app_name) => {
+                export::generate::render_one(&paths, &semantic, app_name)?;
+                step(&cli, &format!("generated config for: {app_name}"));
+            }
+            None => {
+                export::generate::render_all(&paths, &semantic)?;
+                step(&cli, "generated all configs from theme-map.toml");
+            }
+        }
     }
 
     Ok(())
@@ -192,6 +230,21 @@ fn restore(paths: &paths::Paths, cli: &Cli) -> Result<(), error::RwalError> {
 
     if !cli.quiet {
         print_palette(&dict.colors);
+    }
+
+    // ── Generate app configs (opt-in via -g / --generate) ───────────────────
+    if let Some(app_opt) = &cli.generate {
+        let semantic = colors::semantic::from_dict(&dict);
+        match app_opt {
+            Some(app_name) => {
+                export::generate::render_one(paths, &semantic, app_name)?;
+                step(cli, &format!("generated config for: {app_name}"));
+            }
+            None => {
+                export::generate::render_all(paths, &semantic)?;
+                step(cli, "generated all configs from theme-map.toml");
+            }
+        }
     }
 
     Ok(())

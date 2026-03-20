@@ -1,12 +1,17 @@
 /*
 
-Serializes ColorDict to ~/.cache/rwal/colors.json 
-— this is what other tools (waybar scripts, rofi themes, etc.) read
+Dual JSON export:
+  - write_base16()   → ~/.cache/rwal/base16-colors.json   (pywal-compatible, 16-slot)
+  - write_semantic() → ~/.cache/rwal/semantic-colors.json (role-based for modern theming)
+
+Other tools (waybar scripts, rofi themes, etc.) should read from base16-colors.json.
+App-specific config generation uses semantic-colors.json via the rwal-generate.sh script.
 
 */
 use serde::Serialize;
 use std::collections::HashMap;
 use crate::colors::types::ColorDict;
+use crate::colors::semantic;
 use crate::error::RwalError;
 use crate::paths::Paths;
 
@@ -27,8 +32,9 @@ struct SpecialJson<'a> {
     cursor:     &'a str,
 }
 
-/// Write the active `ColorDict` to `~/.cache/rwal/colors.json`.
-pub fn write(paths: &Paths, dict: &ColorDict) -> Result<(), RwalError> {
+/// Write the active `ColorDict` to `~/.cache/rwal/base16-colors.json`.
+/// This is the pywal-compatible 16-slot format kept for legacy tools.
+pub fn write_base16(paths: &Paths, dict: &ColorDict) -> Result<(), RwalError> {
     // Pre-format all hex strings so we can borrow them
     let hex: Vec<String> = dict.colors.iter().map(|c| c.to_hex()).collect();
     let bg  = dict.special.background.to_hex();
@@ -53,20 +59,40 @@ pub fn write(paths: &Paths, dict: &ColorDict) -> Result<(), RwalError> {
 
     let json = serde_json::to_string_pretty(&file)
         .map_err(|e| RwalError::ColorsJsonWriteError(
-            paths.colors_json.clone(),
+            paths.base16_json.clone(),
             e.to_string(),
         ))?;
 
-    std::fs::write(&paths.colors_json, json)
+    std::fs::write(&paths.base16_json, json)
         .map_err(|e| RwalError::ColorsJsonWriteError(
-            paths.colors_json.clone(),
+            paths.base16_json.clone(),
             e.to_string(),
         ))?;
 
     Ok(())
 }
 
-/// Read colors.json back into a ColorDict.
+/// Write `~/.cache/rwal/semantic-colors.json` with named UI roles.
+/// This is the modern, role-based format consumed by `rwal-generate.sh`.
+pub fn write_semantic(paths: &Paths, dict: &ColorDict) -> Result<(), RwalError> {
+    let semantic = semantic::from_dict(dict);
+
+    let json = serde_json::to_string_pretty(&semantic)
+        .map_err(|e| RwalError::ColorsJsonWriteError(
+            paths.semantic_json.clone(),
+            e.to_string(),
+        ))?;
+
+    std::fs::write(&paths.semantic_json, json)
+        .map_err(|e| RwalError::ColorsJsonWriteError(
+            paths.semantic_json.clone(),
+            e.to_string(),
+        ))?;
+
+    Ok(())
+}
+
+/// Read base16-colors.json back into a ColorDict (used by --restore).
 pub fn read(paths: &Paths) -> Result<ColorDict, RwalError> {
     use crate::colors::types::{Rgb, Special};
     use std::collections::HashMap;
@@ -86,22 +112,22 @@ pub fn read(paths: &Paths) -> Result<ColorDict, RwalError> {
         cursor:     String,
     }
 
-    let contents = std::fs::read_to_string(&paths.colors_json)
+    let contents = std::fs::read_to_string(&paths.base16_json)
         .map_err(|e| RwalError::CacheReadError(
-            paths.colors_json.clone(),
+            paths.base16_json.clone(),
             e.to_string(),
         ))?;
 
     let file: ColorsFileRead = serde_json::from_str(&contents)
-        .map_err(|_| RwalError::CacheCorrupted(paths.colors_json.clone()))?;
+        .map_err(|_| RwalError::CacheCorrupted(paths.base16_json.clone()))?;
 
     let mut colors = [Rgb::new(0, 0, 0); 16];
     for i in 0..16 {
         let key = format!("color{i}");
         let hex = file.colors.get(&key)
-            .ok_or_else(|| RwalError::CacheCorrupted(paths.colors_json.clone()))?;
+            .ok_or_else(|| RwalError::CacheCorrupted(paths.base16_json.clone()))?;
         colors[i] = Rgb::from_hex(hex)
-            .ok_or_else(|| RwalError::CacheCorrupted(paths.colors_json.clone()))?;
+            .ok_or_else(|| RwalError::CacheCorrupted(paths.base16_json.clone()))?;
     }
 
     Ok(ColorDict {
@@ -109,11 +135,11 @@ pub fn read(paths: &Paths) -> Result<ColorDict, RwalError> {
         alpha:     file.alpha,
         special:   Special {
             background: Rgb::from_hex(&file.special.background)
-                .ok_or_else(|| RwalError::CacheCorrupted(paths.colors_json.clone()))?,
+                .ok_or_else(|| RwalError::CacheCorrupted(paths.base16_json.clone()))?,
             foreground: Rgb::from_hex(&file.special.foreground)
-                .ok_or_else(|| RwalError::CacheCorrupted(paths.colors_json.clone()))?,
+                .ok_or_else(|| RwalError::CacheCorrupted(paths.base16_json.clone()))?,
             cursor:     Rgb::from_hex(&file.special.cursor)
-                .ok_or_else(|| RwalError::CacheCorrupted(paths.colors_json.clone()))?,
+                .ok_or_else(|| RwalError::CacheCorrupted(paths.base16_json.clone()))?,
         },
         colors,
     })
@@ -176,8 +202,8 @@ mod tests {
     fn test_write_creates_colors_json() {
         let tmp   = TempDir::new();
         let paths = fake_paths(&tmp);
-        write(&paths, &dummy_dict()).unwrap();
-        assert!(paths.colors_json.exists());
+        write_base16(&paths, &dummy_dict()).unwrap();
+        assert!(paths.base16_json.exists());
     }
 
     // ── JSON structure ───────────────────────────────────────────────────────
@@ -186,9 +212,9 @@ mod tests {
     fn test_written_json_is_valid() {
         let tmp   = TempDir::new();
         let paths = fake_paths(&tmp);
-        write(&paths, &dummy_dict()).unwrap();
+        write_base16(&paths, &dummy_dict()).unwrap();
 
-        let contents = std::fs::read_to_string(&paths.colors_json).unwrap();
+        let contents = std::fs::read_to_string(&paths.base16_json).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&contents).unwrap();
         assert!(parsed.is_object());
     }
@@ -197,9 +223,9 @@ mod tests {
     fn test_written_json_has_all_16_colors() {
         let tmp   = TempDir::new();
         let paths = fake_paths(&tmp);
-        write(&paths, &dummy_dict()).unwrap();
+        write_base16(&paths, &dummy_dict()).unwrap();
 
-        let contents = std::fs::read_to_string(&paths.colors_json).unwrap();
+        let contents = std::fs::read_to_string(&paths.base16_json).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&contents).unwrap();
 
         for i in 0..16 {
@@ -215,9 +241,9 @@ mod tests {
     fn test_written_json_has_special_keys() {
         let tmp   = TempDir::new();
         let paths = fake_paths(&tmp);
-        write(&paths, &dummy_dict()).unwrap();
+        write_base16(&paths, &dummy_dict()).unwrap();
 
-        let contents = std::fs::read_to_string(&paths.colors_json).unwrap();
+        let contents = std::fs::read_to_string(&paths.base16_json).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&contents).unwrap();
 
         assert!(parsed["special"]["background"].is_string());
@@ -229,9 +255,9 @@ mod tests {
     fn test_written_json_has_wallpaper_and_alpha() {
         let tmp   = TempDir::new();
         let paths = fake_paths(&tmp);
-        write(&paths, &dummy_dict()).unwrap();
+        write_base16(&paths, &dummy_dict()).unwrap();
 
-        let contents = std::fs::read_to_string(&paths.colors_json).unwrap();
+        let contents = std::fs::read_to_string(&paths.base16_json).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&contents).unwrap();
 
         assert_eq!(parsed["wallpaper"], "/home/user/wall.jpg");
@@ -244,9 +270,9 @@ mod tests {
     fn test_colors_are_hex_format() {
         let tmp   = TempDir::new();
         let paths = fake_paths(&tmp);
-        write(&paths, &dummy_dict()).unwrap();
+        write_base16(&paths, &dummy_dict()).unwrap();
 
-        let contents = std::fs::read_to_string(&paths.colors_json).unwrap();
+        let contents = std::fs::read_to_string(&paths.base16_json).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&contents).unwrap();
 
         for i in 0..16 {
@@ -262,9 +288,9 @@ mod tests {
         let tmp   = TempDir::new();
         let paths = fake_paths(&tmp);
         let dict  = dummy_dict();
-        write(&paths, &dict).unwrap();
+        write_base16(&paths, &dict).unwrap();
 
-        let contents = std::fs::read_to_string(&paths.colors_json).unwrap();
+        let contents = std::fs::read_to_string(&paths.base16_json).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&contents).unwrap();
 
         assert_eq!(
@@ -280,13 +306,13 @@ mod tests {
         let tmp   = TempDir::new();
         let paths = fake_paths(&tmp);
 
-        write(&paths, &dummy_dict()).unwrap();
+        write_base16(&paths, &dummy_dict()).unwrap();
 
         let mut dict2 = dummy_dict();
         dict2.alpha = 75;
-        write(&paths, &dict2).unwrap();
+        write_base16(&paths, &dict2).unwrap();
 
-        let contents = std::fs::read_to_string(&paths.colors_json).unwrap();
+        let contents = std::fs::read_to_string(&paths.base16_json).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&contents).unwrap();
         assert_eq!(parsed["alpha"], 75);
     }
@@ -298,7 +324,7 @@ mod tests {
         let paths = fake_paths(&tmp);
         let dict  = dummy_dict();
 
-        write(&paths, &dict).unwrap();
+        write_base16(&paths, &dict).unwrap();
         let loaded = read(&paths).unwrap();
 
         assert_eq!(loaded.wallpaper, dict.wallpaper);
@@ -323,7 +349,7 @@ mod tests {
     fn test_read_corrupted_file_errors() {
         let tmp   = TempDir::new();
         let paths = fake_paths(&tmp);
-        std::fs::write(&paths.colors_json, b"not valid json {{{{").unwrap();
+        std::fs::write(&paths.base16_json, b"not valid json {{{{").unwrap();
         assert!(matches!(
             read(&paths),
             Err(RwalError::CacheCorrupted(_))
@@ -341,7 +367,7 @@ mod tests {
             dict.colors[i] = Rgb::new(i as u8 * 15, i as u8 * 10, i as u8 * 5);
         }
 
-        write(&paths, &dict).unwrap();
+        write_base16(&paths, &dict).unwrap();
         let loaded = read(&paths).unwrap();
 
         for i in 0..16 {

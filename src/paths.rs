@@ -1,11 +1,13 @@
 /*
 Paths used by rwal:
 
-~/.cache/rwal/colors.json       // active color dict
-~/.cache/rwal/sequences         // OSC sequence file (sourced on login)
-~/.cache/rwal/schemes/          // per-image cached palettes
-~/.config/rwal/templates/       // user templates
-~/.config/rwal/themes/          // saved named themes
+~/.cache/rwal/base16-colors.json  // 16-slot legacy color dict (pywal-compatible)
+~/.cache/rwal/semantic-colors.json // role-based semantic color output
+~/.cache/rwal/sequences           // OSC sequence file (sourced on login)
+~/.cache/rwal/schemes/            // per-image cached palettes
+~/.config/rwal/templates/         // user templates
+~/.config/rwal/themes/            // saved named themes
+~/.config/rwal/theme-map.toml      // user-defined semantic role → app key mapping
 
 */
 
@@ -16,7 +18,8 @@ use crate::error::RwalError;
 pub struct Paths {
     // ~/.cache/rwal/
     pub cache_dir:     PathBuf,
-    pub colors_json:   PathBuf,
+    pub base16_json:   PathBuf,   // base16-colors.json  (legacy 16-slot)
+    pub semantic_json: PathBuf,   // semantic-colors.json (role-based)
     pub sequences:     PathBuf,
     pub schemes_dir:   PathBuf,
 
@@ -24,6 +27,7 @@ pub struct Paths {
     pub config_dir:    PathBuf,
     pub templates_dir: PathBuf,
     pub themes_dir:    PathBuf,
+    pub theme_map:     PathBuf,
 }
 
 impl Paths {
@@ -40,15 +44,31 @@ impl Paths {
         let config_dir = home.join(".config").join("rwal");
 
         Self {
-            colors_json:   cache_dir.join("colors.json"),
+            base16_json:   cache_dir.join("base16-colors.json"),
+            semantic_json: cache_dir.join("semantic-colors.json"),
             sequences:     cache_dir.join("sequences"),
             schemes_dir:   cache_dir.join("schemes"),
             cache_dir,
 
             templates_dir: config_dir.join("templates"),
             themes_dir:    config_dir.join("themes"),
+            theme_map:     config_dir.join("theme-map.toml"),
             config_dir,
         }
+    }
+
+    /// Ensure all required directories exist and seed default config if missing.
+    pub fn ensure_config(&self) -> Result<(), RwalError> {
+        self.ensure_dirs()?;
+
+        if !self.theme_map.exists() {
+            let default_map = include_str!("../contrib/theme-map.example.toml");
+            std::fs::write(&self.theme_map, default_map).map_err(|e| {
+                RwalError::CreateDirFailed(self.theme_map.clone(), e.to_string())
+            })?;
+        }
+
+        Ok(())
     }
 
     /// Ensure all required directories exist, creating them if needed.
@@ -108,8 +128,8 @@ mod tests {
     #[test]
     fn test_colors_json_is_under_cache_dir() {
         let p = paths();
-        assert!(p.colors_json.starts_with(&p.cache_dir));
-        assert_eq!(p.colors_json.file_name().unwrap(), "colors.json");
+        assert!(p.base16_json.starts_with(&p.cache_dir));
+        assert_eq!(p.base16_json.file_name().unwrap(), "base16-colors.json");
     }
 
     #[test]
@@ -145,7 +165,7 @@ mod tests {
         let p1 = Paths::from_home(PathBuf::from("/home/alice"));
         let p2 = Paths::from_home(PathBuf::from("/home/bob"));
         assert_ne!(p1.cache_dir, p2.cache_dir);
-        assert_ne!(p1.colors_json, p2.colors_json);
+        assert_ne!(p1.base16_json, p2.base16_json);
     }
 
     #[test]

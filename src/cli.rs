@@ -11,7 +11,9 @@ CLI Commands:
 --mode <name>      adaptive | vibrant | pastel | classic (default)
 --theme <name>     load a saved .json theme instead of image
 --wallpaper        also apply the wallpaper using the detected backend
+-g, --generate [N] render app configs from theme-map.toml (opt-in)
 */
+
 use clap::Parser;
 use std::path::PathBuf;
 
@@ -76,6 +78,11 @@ pub struct Cli {
     /// List all available color extraction backends
     #[arg(long = "list-backends", default_value_t = false)]
     pub list_backends: bool,
+
+    /// Render app configs from theme-map.toml.
+    /// Optionally specify a single app name to render.
+    #[arg(short = 'g', long = "generate", value_name = "APP", num_args = 0..=1)]
+    pub generate: Option<Option<String>>,
 }
 
 impl Cli {
@@ -86,9 +93,9 @@ impl Cli {
             return Ok(());
         }
 
-        if self.image.is_none() && self.theme.is_none() && !self.restore {
+        if self.image.is_none() && self.theme.is_none() && !self.restore && self.generate.is_none() {
             return Err(
-                "no input provided — use -i <image>, --theme <n>, or -R to restore".into()
+                "no input provided — use -i <image>, --theme <n>, -R to restore, or -g to generate configs".into()
             );
         }
         Ok(())
