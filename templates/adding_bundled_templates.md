@@ -1,41 +1,61 @@
 # Adding New Bundled Templates
 
-This directory contains templates shipped with rwal and embedded at compile time
-via [`rust-embed`](https://github.com/pyrossh/rust-embed).
+> [!NOTE]
+> **Bundling is currently disabled by default.** `rwal` prefers loading user templates from `~/.config/rwal/templates/` at runtime. This avoids bloated binaries and keeps the tool focused.
 
 ---
 
-## How embedding works
+## Why use bundled templates?
 
-In `src/templates.rs`, the `BundledTemplates` struct points at this folder:
-
-```rust
-#[derive(Embed)]
-#[folder = "templates/"]
-#[exclude = "*.md"]
-struct BundledTemplates;
-```
-
-Every file dropped here (except `.md` files) is embedded into the binary at
-`cargo build` time. No other code changes are needed for new templates — the
-`collect_templates()` function iterates all embedded files automatically.
+Bundling is useful if you are building a custom version of `rwal` that you want to distribute with a set of "standard" templates that work out of the box without any user configuration.
 
 ---
 
-## Adding a new template
+## How to re-enable bundling
 
-1. Create your template file in this directory.
+To enable bundling, you must modify `src/export/templates.rs`. 
+
+1. Add the `rust-embed` dependency back to the top of the file:
+   ```rust
+   use rust_embed::RustEmbed;
+   ```
+
+2. Define the `BundledTemplates` struct:
+   ```rust
+   #[derive(RustEmbed)]
+   #[folder = "templates/"]
+   #[exclude = "*.md"]
+   struct BundledTemplates;
+   ```
+
+3. Update `collect_templates()` to include the embedded files:
+   ```rust
+   fn collect_templates(paths: &Paths) -> Result<HashMap<String, String>, RwalError> {
+       let mut map: HashMap<String, String> = HashMap::new();
+
+       // 1. Load bundled templates (embedded at compile time)
+       for filename in BundledTemplates::iter() {
+           if let Some(file) = BundledTemplates::get(&filename) {
+               if let Ok(contents) = std::str::from_utf8(file.data.as_ref()) {
+                   map.insert(filename.to_string(), contents.to_string());
+               }
+           }
+       }
+
+       // 2. Overlay user templates (user wins on clash)
+       // ... existing user-loading logic ...
+       Ok(map)
+   }
+   ```
+
+---
+
+## Adding a new template to this folder
+
+1. Create your template file in this directory (`templates/`).
    Follow the naming convention:
    - `colors.{filetype}` for generic format templates
    - `colors_{application}.{filetype}` for app-specific templates
-
-   Examples:
-   ```
-   colors.toml
-   colors_alacritty.yml
-   colors_waybar.css
-   colors_dunst.conf
-   ```
 
 2. Use only the supported tokens inside your template:
 
@@ -51,46 +71,10 @@ Every file dropped here (except `.md` files) is embedded into the binary at
    | `{wallpaper}`  | Absolute wallpaper path      |
    | `{alpha}`      | Opacity value (0–100)        |
 
-   Any unrecognized `{token}` is left as-is in the output — no errors.
-
-3. Run `cargo build`. Your template is now embedded and will be rendered
-   on every `rwal` run alongside all other templates.
-
-4. Rendered output is written to `~/.cache/rwal/<filename>` — same filename,
-   same flat structure.
+3. Re-compile with `cargo build`.
 
 ---
 
-## User overrides
+## User overrides (Always Active)
 
-If a user places a file with the **same filename** in `~/.config/rwal/templates/`,
-their version takes priority over the bundled one. This is intentional — users
-can customize any bundled template without patching rwal itself.
-
----
-
-## Excluding files from embedding
-
-The `#[exclude = "*.md"]` attribute on `BundledTemplates` means `.md` files
-in this directory are never embedded or rendered. Use `.md` freely for
-per-template documentation.
-
-If you ever need to exclude other patterns (e.g. `.example` files), add them
-in `src/templates.rs`:
-
-```rust
-#[derive(Embed)]
-#[folder = "templates/"]
-#[exclude = "*.md"]
-#[exclude = "*.example"]
-struct BundledTemplates;
-```
-
----
-
-## Checklist for a new template PR
-
-* [ ] File is named `colors.{ext}` or `colors_{app}.{ext}`
-* [ ] Only supported tokens are used
-* [ ] Tested locally with `cargo run` and verified output in `~/.cache/rwal/`
-* [ ] A short comment at the top of the file explains what app it targets
+Regardless of whether bundling is enabled, any file placed in `~/.config/rwal/templates/` with the **same filename** as an embedded or generated file will take priority. This allows users to override any "standard" behavior.
