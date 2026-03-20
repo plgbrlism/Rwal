@@ -144,8 +144,8 @@ fn run(cli: Cli) -> Result<(), error::RwalError> {
         step(&cli, "applied: terminal sequences");
     }
 
-    // ── 9. Set wallpaper ─────────────────────────────────────────────────────
-    if !cli.no_wallpaper && !dict.wallpaper.as_os_str().is_empty() {
+    // ── 9. Set wallpaper (opt-in via --wallpaper / -w) ───────────────────────
+    if cli.wallpaper && !dict.wallpaper.as_os_str().is_empty() {
         if let Err(e) = wallpaper::set(&dict.wallpaper) {
             warn(&e);
         } else {
@@ -162,17 +162,31 @@ fn run(cli: Cli) -> Result<(), error::RwalError> {
 }
 
 /// Restore the last scheme from colors.json and re-export without regenerating.
+/// Always re-applies terminal sequences (hot-reload). Wallpaper is opt-in via --wallpaper.
 fn restore(paths: &paths::Paths, cli: &Cli) -> Result<(), error::RwalError> {
     let dict = export::colors_json::read(paths)?;
 
     step(cli, "restore: loaded last scheme");
 
+    // Always render templates and hot-reload all open terminals from colors.json
     if !cli.no_sequences {
         if let Err(e) = export::templates::render_all(paths, &dict) {
             warn(&e);
         }
+        step(cli, "rendered: templates");
+
         if let Err(e) = export::sequences::apply(paths, &dict) {
             warn(&e);
+        }
+        step(cli, "applied: terminal sequences");
+    }
+
+    // Wallpaper is opt-in: only set it when --wallpaper / -w is passed
+    if cli.wallpaper && !dict.wallpaper.as_os_str().is_empty() {
+        if let Err(e) = wallpaper::set(&dict.wallpaper) {
+            warn(&e);
+        } else {
+            step(cli, &format!("wallpaper: {}", dict.wallpaper.display()));
         }
     }
 

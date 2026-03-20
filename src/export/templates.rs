@@ -1,25 +1,13 @@
-use rust_embed::RustEmbed;
 use std::collections::HashMap;
-//use std::path::Path;
 
 use crate::colors::types::ColorDict;
 use crate::error::{warn, RwalError};
 use crate::paths::Paths;
 
-/// Embedded bundled templates from `templates/` at compile time.
-/// To add a new bundled template, just drop the file into the `templates/`
-/// directory at the project root — it will be picked up automatically.
-/// See `templates/CONTRIBUTING.md` for full instructions.
-#[derive(RustEmbed)]
-#[folder = "templates/"]
-#[exclude = "*.md"] // Don't ship docs as templates
-struct BundledTemplates;
-
 /// Render all templates and write rendered output to `~/.cache/rwal/`.
 ///
-/// Resolution order (last wins):
-///   1. Bundled templates embedded at compile time (`templates/` project root)
-///   2. User templates from `~/.config/rwal/templates/` (user always wins)
+/// Only user templates from `~/.config/rwal/templates/` are loaded.
+/// Drop any template file there to have it rendered on every run.
 pub fn render_all(paths: &Paths, dict: &ColorDict) -> Result<(), RwalError> {
     let templates = collect_templates(paths)?;
 
@@ -41,21 +29,10 @@ pub fn render_all(paths: &Paths, dict: &ColorDict) -> Result<(), RwalError> {
     Ok(())
 }
 
-/// Collect all templates into a filename → contents map.
-/// User templates overlay bundled ones (same filename = user wins).
+/// Collect all user templates from `~/.config/rwal/templates/`.
 fn collect_templates(paths: &Paths) -> Result<HashMap<String, String>, RwalError> {
     let mut map: HashMap<String, String> = HashMap::new();
 
-    // 1. Load bundled templates
-    for filename in BundledTemplates::iter() {
-        if let Some(file) = BundledTemplates::get(&filename) {
-            if let Ok(contents) = std::str::from_utf8(file.data.as_ref()) {
-                map.insert(filename.to_string(), contents.to_string());
-            }
-        }
-    }
-
-    // 2. Overlay user templates (user wins on clash)
     if paths.templates_dir.is_dir() {
         let entries = std::fs::read_dir(&paths.templates_dir)
             .map_err(|e| RwalError::IoError(e.to_string()))?;
@@ -82,6 +59,7 @@ fn collect_templates(paths: &Paths) -> Result<HashMap<String, String>, RwalError
 
     Ok(map)
 }
+
 
 /// Replace all `{token}` placeholders in a template with color values from the dict.
 ///
@@ -114,7 +92,7 @@ fn replace_tokens(contents: &str, dict: &ColorDict) -> String {
 mod tests {
     use super::*;
     use crate::colors::types::{Rgb, Special};
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     struct TempDir {
         path: PathBuf,
@@ -195,21 +173,20 @@ mod tests {
     }
 
     #[test]
-    fn test_user_template_overrides_bundled() {
+    fn test_user_template_is_loaded() {
         let tmp = TempDir::new();
         let paths = Paths::from_home(tmp.path().to_path_buf());
         paths.ensure_dirs().unwrap();
 
-        // Write a user template with the same name as a bundled one
         std::fs::write(
             paths.templates_dir.join("colors.css"),
-            "/* user override */\n:root { --bg: {background}; }",
+            "/* user template */\n:root { --bg: {background}; }",
         )
         .unwrap();
 
         let templates = collect_templates(&paths).unwrap();
         let css = templates.get("colors.css").unwrap();
-        assert!(css.contains("user override"));
+        assert!(css.contains("user template"));
     }
 
     #[test]

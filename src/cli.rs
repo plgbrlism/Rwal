@@ -3,14 +3,14 @@ CLI Commands:
 
 -i <path>          image or directory
 -l                 light mode
--n                 skip wallpaper
+-w                 also set the wallpaper after generating colors
 -s                 skip sequences + templates
--R                 restore last scheme (read cache, re-export)
+-R                 restore last scheme (re-export from colors.json)
 -q                 quiet
 --backend <name>   kmeans (default) | median_cut
---saturate <0.0-1.0>
---alpha <0-100>
+--mode <name>      adaptive | vibrant | pastel | classic (default)
 --theme <name>     load a saved .json theme instead of image
+--wallpaper        also apply the wallpaper using the detected backend
 */
 use clap::Parser;
 use std::path::PathBuf;
@@ -19,7 +19,7 @@ use std::path::PathBuf;
 #[command(
     name    = "rwal",
     version = env!("CARGO_PKG_VERSION"),
-    about   = "Generate color schemes from images and apply them system-wide",
+    about   = "Generate terminal color schemes from images. Wallpaper setting is opt-in via -w.",
     long_about = None,
 )]
 pub struct Cli {
@@ -35,9 +35,9 @@ pub struct Cli {
     #[arg(short = 'l', long = "light", default_value_t = false)]
     pub light: bool,
 
-    /// Skip setting the wallpaper
-    #[arg(short = 'n', long = "no-wallpaper", default_value_t = false)]
-    pub no_wallpaper: bool,
+    /// Also apply the wallpaper after generating/restoring colors
+    #[arg(short = 'w', long = "wallpaper", default_value_t = false)]
+    pub wallpaper: bool,
 
     /// Skip applying sequences and rendering templates
     #[arg(short = 's', long = "no-sequences", default_value_t = false)]

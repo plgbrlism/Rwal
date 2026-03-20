@@ -90,7 +90,7 @@ struct BundledTemplates;
 
 ## Checklist for a new template PR
 
-- [ ] File is named `colors.{ext}` or `colors_{app}.{ext}`
-- [ ] Only supported tokens are used
-- [ ] Tested locally with `cargo run` and verified output in `~/.cache/rwal/`
-- [ ] A short comment at the top of the file explains what app it targets
+* [ ] File is named `colors.{ext}` or `colors_{app}.{ext}`
+* [ ] Only supported tokens are used
+* [ ] Tested locally with `cargo run` and verified output in `~/.cache/rwal/`
+* [ ] A short comment at the top of the file explains what app it targets
