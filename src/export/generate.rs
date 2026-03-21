@@ -1,6 +1,6 @@
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use crate::error::RwalError;
 use crate::paths::Paths;
 use crate::colors::semantic::SemanticDict;
