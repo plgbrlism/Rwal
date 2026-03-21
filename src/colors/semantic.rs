@@ -9,55 +9,70 @@ Roles are derived directly from the palette — no external data is required.
 
 use crate::colors::types::{Rgb, ColorDict};
 use crate::colors::adjust;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 
-/// Semantic role palette derived from a ColorDict.
-/// All fields are hex strings with a leading `#`.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SemanticDict {
     pub wallpaper: String,
     pub alpha:     u8,
-    pub special:   SemanticSpecial,
     pub colors:    SemanticRoles,
 }
 
-#[derive(Debug, Serialize)]
-pub struct SemanticSpecial {
-    pub background: String,
-    pub foreground: String,
-    pub cursor:     String,
-}
-
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SemanticRoles {
     // Backgrounds
-    pub background:      String,
-    pub surface:         String,   // slightly lighter than background
+    #[serde(with = "rgb_hex")]
+    pub background:      Rgb,
+    #[serde(with = "rgb_hex")]
+    pub surface:         Rgb,   // slightly lighter than background
 
     // Text
-    pub foreground:      String,
-    pub cursor:          String,
+    #[serde(with = "rgb_hex")]
+    pub foreground:      Rgb,
+    #[serde(with = "rgb_hex")]
+    pub cursor:          Rgb,
 
     // Accent triad
-    pub primary:         String,
-    pub secondary:       String,
-    pub tertiary:        String,
-    pub accent:          String,   // color4 — general highlight
+    #[serde(with = "rgb_hex")]
+    pub primary:         Rgb,
+    #[serde(with = "rgb_hex")]
+    pub secondary:       Rgb,
+    #[serde(with = "rgb_hex")]
+    pub tertiary:        Rgb,
+    #[serde(with = "rgb_hex")]
+    pub accent:          Rgb,   // color4 — general highlight
 
     // State roles (from palette where available)
-    pub error:           String,
-    pub success:         String,
-    pub warning:         String,
-    pub info:            String,
+    #[serde(with = "rgb_hex")]
+    pub error:           Rgb,
+    #[serde(with = "rgb_hex")]
+    pub success:         Rgb,
+    #[serde(with = "rgb_hex")]
+    pub warning:         Rgb,
+    #[serde(with = "rgb_hex")]
+    pub info:            Rgb,
 
     // Neutrals
-    pub neutral:         String,
-    pub neutral_variant: String,
+    #[serde(with = "rgb_hex")]
+    pub neutral:         Rgb,
+    #[serde(with = "rgb_hex")]
+    pub neutral_variant: Rgb,
+}
 
-    // "On" text — text that sits ON these roles
-    pub on_background:   String,
-    pub on_primary:      String,   // white or black for max contrast on primary
-    pub on_surface:      String,
+mod rgb_hex {
+    use super::Rgb;
+    use serde::{self, Serializer, Deserializer, Deserialize};
+
+    pub fn serialize<S>(rgb: &Rgb, serializer: S) -> Result<S::Ok, S::Error>
+    where S: Serializer {
+        serializer.serialize_str(&rgb.to_hex())
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Rgb, D::Error>
+    where D: Deserializer<'de> {
+        let s = String::deserialize(deserializer)?;
+        Rgb::from_hex(&s).ok_or_else(|| serde::de::Error::custom("invalid hex color"))
+    }
 }
 
 /// Derive a `SemanticDict` from a `ColorDict`.
@@ -86,52 +101,26 @@ pub fn from_dict(dict: &ColorDict) -> SemanticDict {
     let neutral         = dict.colors[8];  // bright-black — archetypal gray
     let neutral_variant = dict.colors[7];  // color7 — lighter divider gray
 
-    // "On" roles — pick black or white depending on contrast
-    let on_background = fg; // already guaranteed contrast by palette builder
-    let on_primary    = readable_on(&primary);
-    let on_surface    = fg;
-
     SemanticDict {
         wallpaper: dict.wallpaper.display().to_string(),
         alpha:     dict.alpha,
-        special: SemanticSpecial {
-            background: dict.special.background.to_hex(),
-            foreground: dict.special.foreground.to_hex(),
-            cursor:     dict.special.cursor.to_hex(),
-        },
         colors: SemanticRoles {
-            background:      bg.to_hex(),
-            surface:         surface.to_hex(),
-            foreground:      fg.to_hex(),
-            cursor:          dict.special.cursor.to_hex(),
-            primary:         primary.to_hex(),
-            secondary:       secondary.to_hex(),
-            tertiary:        tertiary.to_hex(),
-            accent:          accent.to_hex(),
-            error:           error.to_hex(),
-            success:         success.to_hex(),
-            warning:         warning.to_hex(),
-            info:            info.to_hex(),
-            neutral:         neutral.to_hex(),
-            neutral_variant: neutral_variant.to_hex(),
-            on_background:   on_background.to_hex(),
-            on_primary:      on_primary.to_hex(),
-            on_surface:      on_surface.to_hex(),
+            background:      bg,
+            surface,
+            foreground:      fg,
+            cursor:          dict.special.cursor,
+            primary:         primary,
+            secondary:       secondary,
+            tertiary:        tertiary,
+            accent:          accent,
+            error,
+            success,
+            warning,
+            info,
+            neutral:         neutral,
+            neutral_variant: neutral_variant,
         },
     }
-}
-
-/// Choose black (`#000000`) or white (`#ffffff`) depending on which achieves
-/// better contrast against the given color (≥4.5:1 preferred, highest wins).
-fn readable_on(bg: &Rgb) -> Rgb {
-    let white = Rgb::new(255, 255, 255);
-    let black = Rgb::new(0, 0, 0);
-    let lum_bg = adjust::relative_luminance(bg);
-
-    let contrast_white = (lum_bg + 0.05) / (0.0 + 0.05);   // white lum = 1.0
-    let contrast_black = (1.0 + 0.05) / (lum_bg + 0.05);
-
-    if contrast_white >= contrast_black { white } else { black }
 }
 
 /// Blend the palette color toward a conventional hue.

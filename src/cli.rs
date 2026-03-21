@@ -11,10 +11,15 @@ CLI Commands:
 --mode <name>      adaptive | vibrant | pastel | classic (default)
 --theme <name>     load a saved .json theme instead of image
 --wallpaper        also apply the wallpaper using the detected backend
--g, --generate [N] render app configs from theme-map.toml (opt-in)
+-g, --generate [N] render app configs (legacy flag)
+
+Subcommands:
+generate [APP]    render app configs from theme-map.toml
+preview           show semantic roles using dot-palette style
+debug             check theme-map.toml for errors
 */
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -79,10 +84,27 @@ pub struct Cli {
     #[arg(long = "list-backends", default_value_t = false)]
     pub list_backends: bool,
 
-    /// Render app configs from theme-map.toml.
+    /// Render app configs from theme-map.toml during extraction/restore.
     /// Optionally specify a single app name to render.
-    #[arg(short = 'g', long = "generate", value_name = "APP", num_args = 0..=1)]
-    pub generate: Option<Option<String>>,
+    #[arg(short = 'r', long = "render", value_name = "APP", num_args = 0..=1)]
+    pub render: Option<Option<String>>,
+
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Commands {
+    /// Render app configs from theme-map.toml (standalone)
+    Generate {
+        /// Optional: specify a single app name to render (default: all)
+        #[arg(value_name = "APP")]
+        app: Option<String>,
+    },
+    /// Show semantic roles using dot-palette style
+    Preview,
+    /// Check theme-map.toml for errors or missing roles
+    Debug,
 }
 
 impl Cli {
@@ -93,9 +115,13 @@ impl Cli {
             return Ok(());
         }
 
-        if self.image.is_none() && self.theme.is_none() && !self.restore && self.generate.is_none() {
+        if self.image.is_none() 
+            && self.theme.is_none() 
+            && !self.restore 
+            && self.command.is_none() 
+        {
             return Err(
-                "no input provided — use -i <image>, --theme <n>, -R to restore, or -g to generate configs".into()
+                "no input provided — use -i <image>, --theme <n>, -R to restore, or a subcommand (generate, preview, debug)".into()
             );
         }
         Ok(())

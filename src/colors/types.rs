@@ -2,6 +2,8 @@ use std::path::PathBuf;
 use palette::{FromColor, Hsl, IntoColor, Srgb};
 use serde::{Deserialize, Serialize};
 
+use std::fmt;
+
 // ─── Rgb ────────────────────────────────────────────────────────────────────
 
 /// A single 8-bit RGB color.
@@ -12,6 +14,12 @@ pub struct Rgb {
     pub r: u8,
     pub g: u8,
     pub b: u8,
+}
+
+impl fmt::Display for Rgb {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_hex())
+    }
 }
 
 impl Rgb {

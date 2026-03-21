@@ -10,8 +10,11 @@
 # Roles: background, surface, foreground, cursor,
 #        primary, secondary, tertiary, accent,
 #        error, success, warning, info,
-#        neutral, neutral_variant,
-#        on_background, on_primary, on_surface
+#        neutral, neutral_variant
+
+[fallbacks]
+accent   = "primary"
+tertiary = "secondary"
 
 [alacritty]
 output = "~/.config/alacritty/alacritty-colors.toml"

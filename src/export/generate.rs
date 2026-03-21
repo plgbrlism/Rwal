@@ -4,10 +4,18 @@ use std::path::PathBuf;
 use crate::error::RwalError;
 use crate::paths::Paths;
 use crate::colors::semantic::SemanticDict;
+use crate::colors::types::Rgb;
 
 /// The top-level mapping file (~/.config/rwal/theme-map.toml)
 #[derive(Deserialize, Debug)]
-pub struct ThemeMap(pub HashMap<String, AppEntry>);
+pub struct ThemeMap {
+    /// Global role fallbacks: if role X is missing, try Y
+    #[serde(default)]
+    pub fallbacks: HashMap<String, String>,
+    /// Application entries
+    #[serde(flatten)]
+    pub apps: HashMap<String, AppEntry>,
+}
 
 /// A single application's config mapping entry
 #[derive(Deserialize, Debug)]
@@ -24,8 +32,8 @@ pub struct AppEntry {
 pub fn render_all(paths: &Paths, semantic: &SemanticDict) -> Result<(), RwalError> {
     let theme_map = load_theme_map(paths)?;
     
-    for (name, app) in theme_map.0 {
-        if let Err(e) = render_app(&name, &app, semantic) {
+    for (name, app) in theme_map.apps {
+        if let Err(e) = render_app(&name, &app, semantic, &theme_map.fallbacks) {
             crate::error::warn(&e);
         }
     }
@@ -36,10 +44,78 @@ pub fn render_all(paths: &Paths, semantic: &SemanticDict) -> Result<(), RwalErro
 /// Render a single named app from the mapping file.
 pub fn render_one(paths: &Paths, semantic: &SemanticDict, name: &str) -> Result<(), RwalError> {
     let theme_map = load_theme_map(paths)?;
-    let app = theme_map.0.get(name)
+    let app = theme_map.apps.get(name)
         .ok_or_else(|| RwalError::Custom(format!("app '{}' not found in theme-map.toml", name)))?;
     
-    render_app(name, app, semantic)
+    render_app(name, app, semantic, &theme_map.fallbacks)
+}
+
+/// Show semantic roles using dot-palette style.
+pub fn preview(semantic: &SemanticDict) {
+    println!("\n  \x1b[1mSemantic Role Palette Preview\x1b[0m\n");
+
+    let roles = [
+        ("background",      &semantic.colors.background),
+        ("surface",         &semantic.colors.surface),
+        ("foreground",      &semantic.colors.foreground),
+        ("cursor",          &semantic.colors.cursor),
+        ("primary",         &semantic.colors.primary),
+        ("secondary",       &semantic.colors.secondary),
+        ("tertiary",        &semantic.colors.tertiary),
+        ("accent",          &semantic.colors.accent),
+        ("error",           &semantic.colors.error),
+        ("success",         &semantic.colors.success),
+        ("warning",         &semantic.colors.warning),
+        ("info",            &semantic.colors.info),
+        ("neutral",         &semantic.colors.neutral),
+        ("neutral_variant", &semantic.colors.neutral_variant),
+    ];
+
+    for (name, c) in roles {
+        let fg = if crate::colors::adjust::relative_luminance(c) > 0.5 {
+            "\x1b[38;2;0;0;0m" // Black text on bright blocks
+        } else {
+            "\x1b[38;2;255;255;255m" // White text on dark blocks
+        };
+        
+        println!("  \x1b[48;2;{};{};{}m{} {:<15} \x1b[0m {}", c.r, c.g, c.b, fg, name, c.to_hex());
+    }
+    println!();
+}
+
+/// Print debug information about the theme-map.toml.
+pub fn debug(paths: &Paths, semantic: &SemanticDict) -> Result<(), RwalError> {
+    let theme_map = load_theme_map(paths)?;
+    println!("\n  \x1b[1mDebugging theme-map.toml\x1b[0m\n");
+
+    let mut issues = 0;
+    
+    for (app_name, app) in &theme_map.apps {
+        println!("  \x1b[1m[{}]\x1b[0m  (output: {})", app_name, app.output);
+        
+        let mut sorted_keys: Vec<_> = app.map.keys().collect();
+        sorted_keys.sort();
+
+        for key in sorted_keys {
+            let role = &app.map[key];
+            if let Some(color) = resolve_role(role, semantic, &theme_map.fallbacks) {
+                // OK
+                println!("    {}  →  {}  ({})", key, role, color);
+            } else {
+                println!("    \x1b[31merror\x1b[0m: {} uses unknown role '{}'", key, role);
+                issues += 1;
+            }
+        }
+        println!();
+    }
+
+    if issues == 0 {
+        println!("  \x1b[32mOK\x1b[0m: No issues found in theme-map.toml");
+    } else {
+        println!("  \x1b[31mFound {} issues.\x1b[0m", issues);
+    }
+    
+    Ok(())
 }
 
 fn load_theme_map(paths: &Paths) -> Result<ThemeMap, RwalError> {
@@ -56,7 +132,7 @@ fn load_theme_map(paths: &Paths) -> Result<ThemeMap, RwalError> {
     Ok(map)
 }
 
-fn render_app(name: &str, app: &AppEntry, semantic: &SemanticDict) -> Result<(), RwalError> {
+fn render_app(name: &str, app: &AppEntry, semantic: &SemanticDict, fallbacks: &HashMap<String, String>) -> Result<(), RwalError> {
     let output_path = resolve_path(&app.output);
     
     // Ensure parent directory exists
@@ -77,37 +153,10 @@ fn render_app(name: &str, app: &AppEntry, semantic: &SemanticDict) -> Result<(),
     for key in keys {
         let role = &app.map[key];
         
-        // Lookup the color in the semantic palette
-        // Check both .colors and .special
-        let color = match role.as_str() {
-            "background" => Some(&semantic.colors.background),
-            "surface"    => Some(&semantic.colors.surface),
-            "foreground" => Some(&semantic.colors.foreground),
-            "cursor"     => Some(&semantic.colors.cursor),
-            "primary"    => Some(&semantic.colors.primary),
-            "secondary"  => Some(&semantic.colors.secondary),
-            "tertiary"   => Some(&semantic.colors.tertiary),
-            "accent"     => Some(&semantic.colors.accent),
-            "error"      => Some(&semantic.colors.error),
-            "success"    => Some(&semantic.colors.success),
-            "warning"    => Some(&semantic.colors.warning),
-            "info"       => Some(&semantic.colors.info),
-            "neutral"    => Some(&semantic.colors.neutral),
-            "neutral_variant" => Some(&semantic.colors.neutral_variant),
-            "on_background"   => Some(&semantic.colors.on_background),
-            "on_primary"      => Some(&semantic.colors.on_primary),
-            "on_surface"      => Some(&semantic.colors.on_surface),
-            // Special roles
-            "special.background" => Some(&semantic.special.background),
-            "special.foreground" => Some(&semantic.special.foreground),
-            "special.cursor"     => Some(&semantic.special.cursor),
-            _ => None,
-        };
-
-        let color = match color {
+        let color = match resolve_role(role, semantic, fallbacks) {
             Some(c) => c,
             None => {
-                crate::error::warn(&RwalError::Custom(format!("role '{}' not found in semantic palette", role)));
+                crate::error::warn(&RwalError::Custom(format!("role '{}' (mapping to '{}') not found", role, key)));
                 continue;
             }
         };
@@ -117,7 +166,6 @@ fn render_app(name: &str, app: &AppEntry, semantic: &SemanticDict) -> Result<(),
                 content.push_str(&format!("{} = \"{}\"\n", key, color));
             }
             "css" => {
-                // convert key.with.dots to key-with-dots for CSS variables
                 let css_key = key.replace('.', "-");
                 content.push_str(&format!("  --{}: {};\n", css_key, color));
             }
@@ -134,6 +182,40 @@ fn render_app(name: &str, app: &AppEntry, semantic: &SemanticDict) -> Result<(),
         .map_err(|e| RwalError::Custom(format!("failed to write config to {}: {}", output_path.display(), e)))?;
 
     Ok(())
+}
+
+fn resolve_role<'a>(role: &str, semantic: &'a SemanticDict, fallbacks: &HashMap<String, String>) -> Option<&'a Rgb> {
+    // 1. Direct lookup
+    if let Some(c) = lookup_direct(role, semantic) {
+        return Some(c);
+    }
+
+    // 2. Fallback lookup (recursive-ish)
+    if let Some(target) = fallbacks.get(role) {
+        return resolve_role(target, semantic, fallbacks);
+    }
+
+    None
+}
+
+fn lookup_direct<'a>(role: &str, semantic: &'a SemanticDict) -> Option<&'a Rgb> {
+    match role {
+        "background" => Some(&semantic.colors.background),
+        "surface"    => Some(&semantic.colors.surface),
+        "foreground" => Some(&semantic.colors.foreground),
+        "cursor"     => Some(&semantic.colors.cursor),
+        "primary"    => Some(&semantic.colors.primary),
+        "secondary"  => Some(&semantic.colors.secondary),
+        "tertiary"   => Some(&semantic.colors.tertiary),
+        "accent"     => Some(&semantic.colors.accent),
+        "error"      => Some(&semantic.colors.error),
+        "success"    => Some(&semantic.colors.success),
+        "warning"    => Some(&semantic.colors.warning),
+        "info"       => Some(&semantic.colors.info),
+        "neutral"    => Some(&semantic.colors.neutral),
+        "neutral_variant" => Some(&semantic.colors.neutral_variant),
+        _ => None,
+    }
 }
 
 fn resolve_path(path: &str) -> PathBuf {
