@@ -1,10 +1,5 @@
 /*
-Wallpaper setter with cross-platform support and automatic compositor detection.
-
-Platform routing (compile-time):
-  - Windows   → PowerShell + SystemParametersInfo Win32 API
-  - macOS     → osascript (AppleScript via Finder)
-  - Linux     → runtime auto-detection (see set_linux below)
+Wallpaper setter with Linux-only compositor detection.
 
 Linux detection order:
   1. $SWAYSOCK                    → sway
@@ -23,44 +18,15 @@ appropriate detection block. No changes to core logic are required.
 use std::path::Path;
 use crate::error::{RwalError, warn};
 
-#[cfg(target_os = "windows")]
-mod windows;
-
-#[cfg(target_os = "macos")]
-mod macos;
-
-#[cfg(target_os = "linux")]
 mod feh;
-#[cfg(target_os = "linux")]
 mod nitrogen;
-#[cfg(target_os = "linux")]
 mod sway;
-#[cfg(target_os = "linux")]
 mod hyprpaper;
-#[cfg(target_os = "linux")]
 mod xwallpaper;
-
-/// Set the wallpaper using the best available method for the current platform.
-pub fn set(path: &Path) -> Result<(), RwalError> {
-    #[cfg(target_os = "windows")]
-    return windows::set(path);
-
-    #[cfg(target_os = "macos")]
-    return macos::set(path);
-
-    #[cfg(target_os = "linux")]
-    return set_linux(path);
-
-    #[allow(unreachable_code)]
-    Err(RwalError::WallpaperSetFailed(
-        "unsupported platform".to_string()
-    ))
-}
 
 /// Linux: detect active compositor/setter via environment variables, then try
 /// X11 tools in order. Only mature, daemon-free backends are included.
-#[cfg(target_os = "linux")]
-fn set_linux(path: &Path) -> Result<(), RwalError> {
+pub fn set(path: &Path) -> Result<(), RwalError> {
     // Wayland: Sway
     if std::env::var("SWAYSOCK").is_ok() {
         return sway::set(path);
