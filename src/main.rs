@@ -58,19 +58,34 @@ fn run(cli: Cli) -> Result<(), error::RwalError> {
         return Ok(());
     }
 
-    // ── 2. Handle standalone generate (no new palette) ────────────────────────
-    if let Some(ref app_opt) = cli.generate {
-        if cli.image.is_none() && cli.theme.is_none() && !cli.restore {
-            let dict = export::colors_json::read(&paths)?;
-            let semantic = colors::semantic::from_dict(&dict);
-            match app_opt {
-                Some(app) => export::generate::render_one(&paths, &semantic, app)?,
-                None => export::generate::render_all(&paths, &semantic)?,
+    // ── 2. Subcommands ───────────────────────────────────────────────────────
+    if let Some(cmd) = &cli.command {
+        match cmd {
+            cli::Commands::Generate { app } => {
+                let dict = export::colors_json::read(&paths)?;
+                let semantic = colors::semantic::from_dict(&dict);
+                match app {
+                    Some(name) => export::generate::render_one(&paths, &semantic, name)?,
+                    None => export::generate::render_all(&paths, &semantic)?,
+                }
+                step(&cli, "generated configs from cache");
+                return Ok(());
             }
-            step(&cli, "generated configs from cache (no new palette)");
-            return Ok(());
+            cli::Commands::Preview => {
+                let dict = export::colors_json::read(&paths)?;
+                let semantic = colors::semantic::from_dict(&dict);
+                export::generate::preview(&semantic);
+                return Ok(());
+            }
+            cli::Commands::Debug => {
+                let dict = export::colors_json::read(&paths)?;
+                let semantic = colors::semantic::from_dict(&dict);
+                export::generate::debug(&paths, &semantic)?;
+                return Ok(());
+            }
         }
     }
+
 
     // ── 3. Resolve ColorDict ─────────────────────────────────────────────────
     let dict = if let Some(name) = &cli.theme {
@@ -179,8 +194,8 @@ fn run(cli: Cli) -> Result<(), error::RwalError> {
         print_palette(&dict.colors);
     }
 
-    // ── 11. Generate app configs (opt-in via -g / --generate) ────────────────
-    if let Some(ref app_opt) = cli.generate {
+    // ── 11. Generate app configs (opt-in via -r / --render) ─────────────────
+    if let Some(ref app_opt) = cli.render {
         // Read the semantic dict back from disk (or derive it from in-memory dict)
         let semantic = colors::semantic::from_dict(&dict);
         
@@ -232,8 +247,8 @@ fn restore(paths: &paths::Paths, cli: &Cli) -> Result<(), error::RwalError> {
         print_palette(&dict.colors);
     }
 
-    // ── Generate app configs (opt-in via -g / --generate) ───────────────────
-    if let Some(app_opt) = &cli.generate {
+    // ── Generate app configs (opt-in via -r / --render) ─────────────────────
+    if let Some(app_opt) = &cli.render {
         let semantic = colors::semantic::from_dict(&dict);
         match app_opt {
             Some(app_name) => {

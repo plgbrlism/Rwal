@@ -19,7 +19,13 @@ pub fn apply(paths: &Paths, dict: &ColorDict) -> Result<(), RwalError> {
     let sequences = build_sequences(dict);
 
     write_sequence_file(paths, &sequences)?;
+    
+    // Live recolor open terminals (Linux /dev/pts)
     write_to_terminals(&sequences);
+
+    // Recolor current terminal (Universal OSC via stdout)
+    let _ = std::io::stdout().write_all(sequences.as_bytes());
+    let _ = std::io::stdout().flush();
 
     Ok(())
 }
@@ -62,6 +68,14 @@ fn write_sequence_file(paths: &Paths, sequences: &str) -> Result<(), RwalError> 
 fn write_to_terminals(sequences: &str) {
     let pts_dir = PathBuf::from("/dev/pts");
 
+    #[cfg(windows)]
+    {
+        // Windows doesn't have /dev/pts. 
+        // Future: could use windows-specific APIs for other conhosts if requested.
+        return;
+    }
+
+    #[cfg(unix)]
     if !pts_dir.exists() {
         return;
     }
@@ -90,16 +104,28 @@ fn write_to_terminals(sequences: &str) {
     }
 }
 
-/// Write the sequence string to a single pts file.
 fn write_to_pts(path: &PathBuf, sequences: &str) -> Result<(), RwalError> {
-    use std::os::unix::fs::OpenOptionsExt;
-    
-    // 0o4000 is O_NONBLOCK on Linux. This prevents rwal from hanging 
-    // indefinitely if a background pseudo-terminal is stalled or dead.
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .custom_flags(0o4000)
-        .open(path)
+    use std::fs::OpenOptions;
+
+    let mut options = OpenOptions::new();
+    options.write(true).create(false); // don't create new pts files, only open existing ones
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // 0o4000 is O_NONBLOCK on Linux. This prevents rwal from hanging 
+        // indefinitely if a background pseudo-terminal is stalled or dead.
+        options.custom_flags(0o4000);
+    }
+
+    #[cfg(windows)]
+    {
+        // On Windows, OpenOptionsExt is available but custom_flags 
+        // takes Win32 FILE_FLAG_* constants. 
+        // For now, we don't need specific flags for writing to a "pts-like" logic.
+    }
+
+    let mut file = options.open(path)
         .map_err(|e| RwalError::SequenceWriteError(format!(
             "could not open {}: {e}", path.display()
         )))?;
@@ -286,5 +312,20 @@ mod tests {
 
         apply(&paths, &dict).unwrap();
         assert!(paths.sequences.exists());
+    }
+
+    // ── write_to_pts Windows Compatibility ────────────────────────────────────
+
+    #[test]
+    fn test_write_to_pts_works_with_regular_file() {
+        let tmp = TempDir::new();
+        let target = tmp.path().join("fake_pts");
+        std::fs::write(&target, "").unwrap(); // Seed the file
+        
+        let sequences = "\x1b]11;#000000\x07";
+        write_to_pts(&target, sequences).expect("should work on regular files regardless of OS");
+        
+        let content = std::fs::read_to_string(&target).unwrap();
+        assert_eq!(content, sequences);
     }
 }
