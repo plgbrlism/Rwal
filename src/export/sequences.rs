@@ -20,11 +20,9 @@ pub fn apply(paths: &Paths, dict: &ColorDict) -> Result<(), RwalError> {
 
     write_sequence_file(paths, &sequences)?;
     
-    // Live recolor open terminals (Linux /dev/pts)
-    write_to_terminals(&sequences);
-
-    // Recolor current terminal (Universal OSC via stdout)
+    // Recolor current terminal natively via stdout on Windows
     let _ = std::io::stdout().write_all(sequences.as_bytes());
+
     let _ = std::io::stdout().flush();
 
     Ok(())
@@ -60,89 +58,6 @@ fn build_sequences(dict: &ColorDict) -> String {
 fn write_sequence_file(paths: &Paths, sequences: &str) -> Result<(), RwalError> {
     std::fs::write(&paths.sequences, sequences)
         .map_err(|e| RwalError::SequenceWriteError(e.to_string()))
-}
-
-/// Write sequences to every open terminal under `/dev/pts/`.
-/// Warns on individual failures but never stops — other terminals
-/// should still be recolored even if one fails.
-fn write_to_terminals(sequences: &str) {
-    let pts_dir = PathBuf::from("/dev/pts");
-
-    #[cfg(windows)]
-    {
-        // Windows doesn't have /dev/pts. 
-        // Future: could use windows-specific APIs for other conhosts if requested.
-        return;
-    }
-
-    #[cfg(unix)]
-    if !pts_dir.exists() {
-        return;
-    }
-
-    let entries = match std::fs::read_dir(&pts_dir) {
-        Ok(e)  => e,
-        Err(e) => {
-            warn(&RwalError::SequenceWriteError(format!(
-                "could not read /dev/pts: {e}"
-            )));
-            return;
-        }
-    };
-
-    for entry in entries.filter_map(|e| e.ok()) {
-        let path = entry.path();
-
-        // Skip non-numeric entries (e.g. /dev/pts/ptmx)
-        if !is_pts_terminal(&path) {
-            continue;
-        }
-
-        if let Err(e) = write_to_pts(&path, sequences) {
-            warn(&e);
-        }
-    }
-}
-
-fn write_to_pts(path: &PathBuf, sequences: &str) -> Result<(), RwalError> {
-    use std::fs::OpenOptions;
-
-    let mut options = OpenOptions::new();
-    options.write(true).create(false); // don't create new pts files, only open existing ones
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        // 0o4000 is O_NONBLOCK on Linux. This prevents rwal from hanging 
-        // indefinitely if a background pseudo-terminal is stalled or dead.
-        options.custom_flags(0o4000);
-    }
-
-    #[cfg(windows)]
-    {
-        // On Windows, OpenOptionsExt is available but custom_flags 
-        // takes Win32 FILE_FLAG_* constants. 
-        // For now, we don't need specific flags for writing to a "pts-like" logic.
-    }
-
-    let mut file = options.open(path)
-        .map_err(|e| RwalError::SequenceWriteError(format!(
-            "could not open {}: {e}", path.display()
-        )))?;
-
-    // We don't check the output of write_all too strictly because 
-    // WouldBlock errors on a dead TTY are fine to ignore.
-    let _ = file.write_all(sequences.as_bytes());
-
-    Ok(())
-}
-
-/// Returns true if the path is a numeric pts entry (a real terminal).
-fn is_pts_terminal(path: &PathBuf) -> bool {
-    path.file_name()
-        .and_then(|n| n.to_str())
-        .map(|n| n.chars().all(|c| c.is_ascii_digit()))
-        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -284,24 +199,6 @@ mod tests {
         assert_eq!(contents, "new content");
     }
 
-    // ── is_pts_terminal ──────────────────────────────────────────────────────
-
-    #[test]
-    fn test_is_pts_terminal_numeric() {
-        assert!(is_pts_terminal(&PathBuf::from("/dev/pts/0")));
-        assert!(is_pts_terminal(&PathBuf::from("/dev/pts/12")));
-    }
-
-    #[test]
-    fn test_is_pts_terminal_rejects_ptmx() {
-        assert!(!is_pts_terminal(&PathBuf::from("/dev/pts/ptmx")));
-    }
-
-    #[test]
-    fn test_is_pts_terminal_rejects_mixed() {
-        assert!(!is_pts_terminal(&PathBuf::from("/dev/pts/1abc")));
-    }
-
     // ── apply ────────────────────────────────────────────────────────────────
 
     #[test]
@@ -312,20 +209,5 @@ mod tests {
 
         apply(&paths, &dict).unwrap();
         assert!(paths.sequences.exists());
-    }
-
-    // ── write_to_pts Windows Compatibility ────────────────────────────────────
-
-    #[test]
-    fn test_write_to_pts_works_with_regular_file() {
-        let tmp = TempDir::new();
-        let target = tmp.path().join("fake_pts");
-        std::fs::write(&target, "").unwrap(); // Seed the file
-        
-        let sequences = "\x1b]11;#000000\x07";
-        write_to_pts(&target, sequences).expect("should work on regular files regardless of OS");
-        
-        let content = std::fs::read_to_string(&target).unwrap();
-        assert_eq!(content, sequences);
     }
 }
