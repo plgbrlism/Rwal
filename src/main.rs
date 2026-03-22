@@ -9,7 +9,7 @@ parse cli args
 → write cache
 → write base16-colors.json  (export::colors_json::write_base16)
 → write semantic-colors.json (export::colors_json::write_semantic)
-→ render templates (export::templates)          [unless -s skipped]
+→ render templates (export::templates)          [only with --template]
 → send sequences (export::sequences)            [unless -s skipped]
 → set wallpaper (wallpaper)                     [only with --wallpaper]
 */
@@ -141,6 +141,15 @@ fn run(cli: Cli) -> Result<(), error::RwalError> {
     // --debug (-d)
     if cli.debug {
         export::generate::debug(&paths, &semantic)?;
+    }
+
+    // --template (-t)
+    if cli.template {
+        if let Err(e) = export::templates::render_all(&paths, &dict) {
+            warn(&e);
+        } else {
+            step(&cli, "rendered user templates to ~/.cache/rwal/");
+        }
     }
 
     Ok(())

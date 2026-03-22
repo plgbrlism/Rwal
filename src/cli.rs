@@ -48,6 +48,10 @@ pub struct Cli {
     #[arg(short = 'd', long = "debug", default_value_t = false, conflicts_with_all = ["quiet"])]
     pub debug: bool,
 
+    /// Render user templates from ~/.config/rwal/templates/
+    #[arg(short = 't', long = "template", default_value_t = false, conflicts_with = "noop")]
+    pub template: bool,
+
     /// Multi-purpose render flag
     #[arg(short = 'r', long = "render", value_name = "APP", num_args = 0..=1, conflicts_with = "noop",
     help = "Render app configs from theme-map.toml\n\
@@ -96,11 +100,12 @@ impl Cli {
         if self.image.is_none() 
             && !self.restore 
             && self.render.is_none()
+            && !self.template
             && !self.preview
             && !self.debug
         {
             return Err(
-                "no action provided — use -i <image>, -R to restore, -r to render, -p to preview, or -d to debug".into()
+                "no action provided — use -i <image>, -R to restore, -r to render, -t for templates, -p to preview, or -d to debug".into()
             );
         }
         Ok(())
