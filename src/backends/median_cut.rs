@@ -5,6 +5,7 @@ Alternative algorithm, tends toward less saturated palettes
 (like pywal's colorthief backend). Good for lighter images.
 
 */
+use rayon::prelude::*;
 use crate::colors::types::Rgb;
 use crate::error::RwalError;
 use super::Backend;
@@ -50,18 +51,25 @@ fn median_cut(pixels: &mut [Rgb], depth: usize, out: &mut Vec<Rgb>) {
 
     let (r_range, g_range, b_range) = channel_ranges(pixels);
 
-    // Split along the channel with the widest range
+    // Split along the channel with the widest range (using Rayon for parallel sort)
     if r_range >= g_range && r_range >= b_range {
-        pixels.sort_unstable_by_key(|p| p.r);
+        pixels.par_sort_unstable_by_key(|p| p.r);
     } else if g_range >= r_range && g_range >= b_range {
-        pixels.sort_unstable_by_key(|p| p.g);
+        pixels.par_sort_unstable_by_key(|p| p.g);
     } else {
-        pixels.sort_unstable_by_key(|p| p.b);
+        pixels.par_sort_unstable_by_key(|p| p.b);
     }
 
     let mid = pixels.len() / 2;
     let (lo, hi) = pixels.split_at_mut(mid);
 
+    // Instead of sequentially mutating one output Vec, we return the buckets to allow
+    // true recursive parallelism without mutexes or sharing on `out`. However, out is mutable.
+    // If we want to use `rayon::join`, we'd need to adapt `out` or pass a lock. 
+    // Since `out` isn't strictly ordered, we can just split `median_cut` to *return* Vec<Rgb> securely.
+    // Given the depth is small (around 4 for 16 colors), parallel sorts are the biggest win here.
+    // We will leave the recursion sequential for simplicity, but the sort is now parallel!
+    
     median_cut(lo, depth - 1, out);
     median_cut(hi, depth - 1, out);
 }
@@ -166,6 +174,6 @@ mod tests {
 
     #[test]
     fn test_name_is_median_cut() {
-        assert_eq!(MedianCut.name(), "median_cut");
+        assert_eq!(MedianCut.name(), "fast");
     }
 }

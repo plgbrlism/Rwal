@@ -8,6 +8,7 @@ Write to every /dev/pts/N tty file to recolor open terminals live
 */
 use std::io::Write;
 use std::path::PathBuf;
+use rayon::prelude::*;
 use crate::colors::types::ColorDict;
 use crate::error::{RwalError, warn};
 use crate::paths::Paths;
@@ -82,18 +83,20 @@ fn write_to_terminals(sequences: &str) {
         }
     };
 
-    for entry in entries.filter_map(|e| e.ok()) {
-        let path = entry.path();
+    entries.filter_map(|e| e.ok())
+        .par_bridge()
+        .for_each(|entry| {
+            let path = entry.path();
 
-        // Skip non-numeric entries (e.g. /dev/pts/ptmx)
-        if !is_pts_terminal(&path) {
-            continue;
-        }
+            // Skip non-numeric entries (e.g. /dev/pts/ptmx)
+            if !is_pts_terminal(&path) {
+                return;
+            }
 
-        if let Err(e) = write_to_pts(&path, sequences) {
-            warn(&e);
-        }
-    }
+            if let Err(e) = write_to_pts(&path, sequences) {
+                warn(&e);
+            }
+        });
 }
 
 fn write_to_pts(path: &PathBuf, sequences: &str) -> Result<(), RwalError> {
