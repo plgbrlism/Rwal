@@ -4,11 +4,11 @@ CLI Commands:
 -i <path>          image or directory
 -l                 light mode
 -w                 also set the wallpaper after generating colors
--s                 skip sequences + templates
+-n                 skip sequences + templates
 -R                 restore last scheme (re-export from colors.json)
 -q                 quiet
---backend <name>   kmeans (default) | median_cut
---mode <name>      adaptive | vibrant | pastel | classic (default)
+--backend <name>   kmeans:accurate (default) | fast:median_cut
+--mode <name>      [default] classic:balanced |adaptive:dynamic | vibrant:neon | pastel:soft
 --theme <name>     load a saved .json theme instead of image
 --wallpaper        also apply the wallpaper using the detected backend
 -g, --generate [N] render app configs (legacy flag)
@@ -19,14 +19,16 @@ preview           show semantic roles using dot-palette style
 debug             check theme-map.toml for errors
 */
 
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(
     name    = "rwal",
     version = env!("CARGO_PKG_VERSION"),
-    about   = "Generate terminal color schemes from images. Wallpaper setting is opt-in via -w.",
+    about   = "Generate accessible color schemes from images.\n\
+               Managed via chained commands.\n\
+               One flag — one function",
     long_about = None,
 )]
 pub struct Cli {
@@ -34,94 +36,71 @@ pub struct Cli {
     #[arg(short = 'i', long = "image", value_name = "PATH")]
     pub image: Option<PathBuf>,
 
-    /// Restore the last generated color scheme from cache
-    #[arg(short = 'R', long = "restore", default_value_t = false)]
+    /// Restores the last generated color scheme from cache
+    #[arg(short = 'R', long = "restore", default_value_t = false, conflicts_with = "image")]
     pub restore: bool,
 
-    /// Generate a light color scheme instead of dark
+    /// Show semantic roles + base16 preview
+    #[arg(short = 'p', long = "preview", default_value_t = false, conflicts_with_all = ["quiet"])]
+    pub preview: bool,
+
+    /// Validate theme-map.toml mappings
+    #[arg(short = 'd', long = "debug", default_value_t = false, conflicts_with_all = ["quiet"])]
+    pub debug: bool,
+
+    /// Multi-purpose render flag
+    #[arg(short = 'r', long = "render", value_name = "APP", num_args = 0..=1, conflicts_with = "noop",
+    help = "Render app configs from theme-map.toml\n\
+            Can be standalone (use last cache) or chained with -i (new image).\n\
+            Optional: specify a single app name to render (default: all)")]
+    pub render: Option<Option<String>>,
+
+    /// Generate a light color scheme
     #[arg(short = 'l', long = "light", default_value_t = false)]
     pub light: bool,
 
     /// Also apply the wallpaper after generating/restoring colors
-    #[arg(short = 'w', long = "wallpaper", default_value_t = false)]
+    #[arg(short = 'w', long = "wallpaper", default_value_t = false, conflicts_with = "noop")]
     pub wallpaper: bool,
 
-    /// Skip applying sequences and rendering templates
-    #[arg(short = 's', long = "no-sequences", default_value_t = false)]
-    pub no_sequences: bool,
+    /// Skip writing sequences and templates (preview only)
+    #[arg(short = 'n', long = "noop", default_value_t = false, conflicts_with_all = ["render", "wallpaper"])]
+    pub noop: bool,
 
     /// Quiet mode — suppress all output
-    #[arg(short = 'q', long = "quiet", default_value_t = false)]
+    #[arg(short = 'q', long = "quiet", default_value_t = false, conflicts_with_all = ["preview", "debug"])]
     pub quiet: bool,
 
-    /// Color extraction backend to use
+    /// Color Extraction Logic
     #[arg(
         long = "backend",
         value_name = "NAME",
-        default_value = "kmeans",
-        value_parser = ["kmeans", "median_cut"],
+        default_value = "accurate",
+        value_parser = ["accurate", "fast"],
     )]
     pub backend: String,
 
-    /// Palette generation mode
+    /// Palette Generation Mode
     #[arg(
         long = "mode",
         value_name = "NAME",
-        default_value = "classic",
-        value_parser = ["adaptive", "vibrant", "pastel", "classic"],
+        default_value = "balanced",
+        value_parser = ["balanced", "dynamic", "neon", "soft"],
     )]
     pub mode: String,
-
-    /// Load a saved theme by name instead of generating from image
-    #[arg(long = "theme", value_name = "NAME")]
-    pub theme: Option<String>,
-
-    /// List all available themes (bundled + user)
-    #[arg(long = "list-themes", default_value_t = false)]
-    pub list_themes: bool,
- 
-    /// List all available color extraction backends
-    #[arg(long = "list-backends", default_value_t = false)]
-    pub list_backends: bool,
-
-    /// Render app configs from theme-map.toml during extraction/restore.
-    /// Optionally specify a single app name to render.
-    #[arg(short = 'r', long = "render", value_name = "APP", num_args = 0..=1)]
-    pub render: Option<Option<String>>,
-
-    #[command(subcommand)]
-    pub command: Option<Commands>,
-}
-
-#[derive(Subcommand, Debug)]
-pub enum Commands {
-    /// Render app configs from theme-map.toml (standalone)
-    Generate {
-        /// Optional: specify a single app name to render (default: all)
-        #[arg(value_name = "APP")]
-        app: Option<String>,
-    },
-    /// Show semantic roles using dot-palette style
-    Preview,
-    /// Check theme-map.toml for errors or missing roles
-    Debug,
 }
 
 impl Cli {
-    /// Validate that the user provided either -i, --theme, or -R.
+    /// Validate that the user provided at least one primary action.
     pub fn validate(&self) -> Result<(), String> {
-        if self.list_themes || self.list_backends {
-            // No validation needed when listing themes or backends
-            return Ok(());
-        }
-
         if self.image.is_none() 
-            && self.theme.is_none() 
             && !self.restore 
-            && self.command.is_none() 
+            && self.render.is_none()
+            && !self.preview
+            && !self.debug
         {
             return Err(
-                "no input provided — use -i <image>, --theme <n>, -R to restore, or a subcommand (generate, preview, debug)".into()
+                "no action provided — use -i <image>, -R to restore, -r to render, -p to preview, or -d to debug".into()
             );
         }
         Ok(())

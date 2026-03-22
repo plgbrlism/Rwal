@@ -21,11 +21,12 @@ pub trait Backend: Send + Sync {
 /// Select a backend by name string (from CLI --backend flag).
 pub fn from_name(name: &str) -> Result<Box<dyn Backend>, RwalError> {
     match name {
-        "kmeans"      => Ok(Box::new(kmeans::KMeans)),
-        "median_cut"  => Ok(Box::new(median_cut::MedianCut)),
+        "accurate"    => Ok(Box::new(kmeans::KMeans)),
+        "fast"        => Ok(Box::new(median_cut::MedianCut)),
         other         => Err(RwalError::UnsupportedBackend(other.to_string())),
     }
 }
+
 
 /// Default backend used when none is specified.
 pub fn default() -> Box<dyn Backend> {

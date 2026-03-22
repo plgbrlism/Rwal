@@ -18,9 +18,7 @@ use super::Backend;
 pub struct KMeans;
 
 impl Backend for KMeans {
-    fn name(&self) -> &str {
-        "kmeans"
-    }
+    fn name(&self) -> &str { "accurate" }
 
     fn generate(&self, pixels: &[Rgb], count: usize, iterations: u8) -> Result<Vec<Rgb>, RwalError> {
         if pixels.is_empty() {

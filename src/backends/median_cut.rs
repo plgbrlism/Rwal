@@ -12,9 +12,7 @@ use super::Backend;
 pub struct MedianCut;
 
 impl Backend for MedianCut {
-    fn name(&self) -> &str {
-        "median_cut"
-    }
+    fn name(&self) -> &str { "fast" }
 
     /// `iterations` is unused in median cut (it's deterministic) but kept
     /// in the trait signature for API consistency.

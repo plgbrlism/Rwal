@@ -26,7 +26,7 @@ mod cli;
 
 use clap::Parser;
 use cli::Cli;
-use colors::types::Rgb;
+// use colors::types::Rgb;
 use error::warn;
  
 fn main() {
@@ -44,161 +44,83 @@ fn main() {
 }
  
 fn run(cli: Cli) -> Result<(), error::RwalError> {
-    // ── 1. Setup paths ───────────────────────────────────────────────────────
+    // ── 1. Init ─────────────────────────────────────────────────────────────
     let paths = paths::Paths::resolve()?;
     paths.ensure_config()?;
 
-    // Handle --list-themes and --list-backends before doing any work
-    if cli.list_themes {
-        export::theme::list_all(&paths);
-        return Ok(());
-    }
-    if cli.list_backends {
-        println!("kmeans\nmedian_cut");
-        return Ok(());
-    }
-
-    // ── 2. Subcommands ───────────────────────────────────────────────────────
-    if let Some(cmd) = &cli.command {
-        match cmd {
-            cli::Commands::Generate { app } => {
-                let dict = export::colors_json::read(&paths)?;
-                let semantic = colors::semantic::from_dict(&dict);
-                match app {
-                    Some(name) => export::generate::render_one(&paths, &semantic, name)?,
-                    None => export::generate::render_all(&paths, &semantic)?,
-                }
-                step(&cli, "generated configs from cache");
-                return Ok(());
-            }
-            cli::Commands::Preview => {
-                let dict = export::colors_json::read(&paths)?;
-                let semantic = colors::semantic::from_dict(&dict);
-                export::generate::preview(&semantic);
-                return Ok(());
-            }
-            cli::Commands::Debug => {
-                let dict = export::colors_json::read(&paths)?;
-                let semantic = colors::semantic::from_dict(&dict);
-                export::generate::debug(&paths, &semantic)?;
-                return Ok(());
-            }
-        }
-    }
-
-
-    // ── 3. Resolve ColorDict ─────────────────────────────────────────────────
-    let dict = if let Some(name) = &cli.theme {
-        // --theme: skip image extraction entirely, load from colorschemes/
-        let dict = export::theme::load(&paths, name)?;
-        step(&cli, &format!("theme: {name}"));
-        dict
-
-    } else if cli.restore {
-        // --restore: re-export last scheme from colors.json
-        return restore(&paths, &cli);
-
-    } else {
-        // Normal path: extract from image
-        let image_path = match &cli.image {
-            Some(p) => image::loader::resolve(p)?,
-            None => return Err(error::RwalError::ImageNotFound(
-                std::path::PathBuf::from("<no image>"),
-            )),
-        };
-
+    // ── 2. Resolve ColorDict (Source) ───────────────────────────────────────
+    let (dict, is_new) = if let Some(image_arg) = &cli.image {
+        // A. Image extraction path
+        let image_path = image::loader::resolve(image_arg)?;
         step(&cli, &format!("image: {}", image_path.display()));
 
-        // ── 3. Check cache ───────────────────────────────────────────────────
         let file_size = cache::scheme::file_size(&image_path);
-        let key = cache::scheme::cache_key(
-            &image_path,
-            &cli.backend,
-            &cli.mode,
-            cli.light,
-            file_size,
-        );
+        let key = cache::scheme::cache_key(&image_path, &cli.backend, &cli.mode, cli.light, file_size);
 
-        match cache::scheme::load(&paths, &key) {
-            Ok(Some(cached)) => {
-                step(&cli, "colors: loaded from cache");
-                cached
-            }
-            Ok(None) | Err(_) => {
-                // ── 4. Extract colors ────────────────────────────────────────
-                step(&cli, &format!("backend: {}", cli.backend));
+        if let Ok(Some(cached)) = cache::scheme::load(&paths, &key) {
+            step(&cli, "colors: loaded from cache");
+            (cached, true) // is_new=true means we should write JSONs/Sequences
+        } else {
+            step(&cli, &format!("backend: {}", cli.backend));
+            let backend = backends::from_name(&cli.backend)?;
+            let raw = colors::extractor::extract(&image_path, backend.as_ref(), 16, 10)?;
+            step(&cli, "colors: extracted");
 
-                let backend = backends::from_name(&cli.backend)?;
-                let raw = colors::extractor::extract(
-                    &image_path,
-                    backend.as_ref(),
-                    16,
-                    10,
-                )?;
-
-                step(&cli, "colors: extracted");
-
-                // ── 5. Build palette ─────────────────────────────────────────
-                let dict = colors::palette::build(
-                    raw,
-                    image_path.clone(),
-                    100,
-                    cli.light,
-                    &cli.mode,
-                )?;
-
-                // ── 6. Write cache ───────────────────────────────────────────
-                if let Err(e) = cache::scheme::save(&paths, &key, &dict) {
-                    warn(&e);
-                }
-
-                dict
-            }
+            let dict = colors::palette::build(raw, image_path.clone(), 100, cli.light, &cli.mode)?;
+            if let Err(e) = cache::scheme::save(&paths, &key, &dict) { warn(&e); }
+            (dict, true)
         }
+    } else if cli.restore {
+        // B. Restore path (explicitly reload then re-apply state)
+        let dict = export::colors_json::read(&paths)?;
+        step(&cli, "restore: loaded last scheme");
+        (dict, true)
+    } else {
+        // C. Standalone path (read from JSON cache for flags like -r, -p, -d)
+        if !paths.base16_json.exists() || !paths.semantic_json.exists() {
+            return Err(error::RwalError::CacheReadError(
+                paths.base16_json.clone(),
+                "one or both color JSONs are missing — run with -i <image> first".to_string(),
+            ));
+        }
+        let dict = export::colors_json::read(&paths)?;
+        (dict, false)
     };
 
-    // ── 7. Write dual JSON outputs ──────────────────────────────────────────
-    export::colors_json::write_base16(&paths, &dict)?;
-    step(&cli, "wrote: base16-colors.json");
 
-    if let Err(e) = export::colors_json::write_semantic(&paths, &dict) {
-        warn(&e);
-    } else {
-        step(&cli, "wrote: semantic-colors.json");
-    }
+    // ── 3. Base Actions (only if new extraction or explicit restore) ────────
+    if is_new {
+        // Write JSON exports
+        export::colors_json::write_base16(&paths, &dict)?;
+        if let Err(e) = export::colors_json::write_semantic(&paths, &dict) { warn(&e); }
+        step(&cli, "updated: color caches");
 
-    // ── 8. Render templates + sequences ─────────────────────────────────────
-    if !cli.no_sequences {
-        if let Err(e) = export::templates::render_all(&paths, &dict) {
-            warn(&e);
+        // Apply hot-reload state unless noop
+        if !cli.noop {
+            if let Err(e) = export::sequences::apply(&paths, &dict) { warn(&e); }
+            step(&cli, "applied: hot-reload sequences");
         }
-        step(&cli, "rendered: templates");
 
-        if let Err(e) = export::sequences::apply(&paths, &dict) {
-            warn(&e);
+
+        // Apply wallpaper
+        if cli.wallpaper && !dict.wallpaper.as_os_str().is_empty() {
+            if let Err(e) = wallpaper::set(&dict.wallpaper) { warn(&e); }
+            else { step(&cli, &format!("wallpaper: {}", dict.wallpaper.display())); }
         }
-        step(&cli, "applied: terminal sequences");
-    }
 
-    // ── 9. Set wallpaper (opt-in via --wallpaper / -w) ───────────────────────
-    if cli.wallpaper && !dict.wallpaper.as_os_str().is_empty() {
-        if let Err(e) = wallpaper::set(&dict.wallpaper) {
-            warn(&e);
-        } else {
-            step(&cli, &format!("wallpaper: {}", dict.wallpaper.display()));
+        // Default preview in image/restore flow (skip if user wants explicit full preview or debug)
+        if !cli.quiet && !cli.preview && !cli.debug {
+            let semantic = colors::semantic::from_dict(&dict);
+            export::generate::preview(&semantic, None);
         }
+
     }
 
-    // ── 10. Print palette ────────────────────────────────────────────────────
-    if !cli.quiet {
-        print_palette(&dict.colors);
-    }
+    // ── 4. Chained Action Flags ─────────────────────────────────────────────
+    let semantic = colors::semantic::from_dict(&dict);
 
-    // ── 11. Generate app configs (opt-in via -r / --render) ─────────────────
-    if let Some(ref app_opt) = cli.render {
-        // Read the semantic dict back from disk (or derive it from in-memory dict)
-        let semantic = colors::semantic::from_dict(&dict);
-        
+    // --render [<APP>]
+    if let Some(app_opt) = &cli.render {
         match app_opt {
             Some(app_name) => {
                 export::generate::render_one(&paths, &semantic, app_name)?;
@@ -211,84 +133,23 @@ fn run(cli: Cli) -> Result<(), error::RwalError> {
         }
     }
 
-    Ok(())
-}
-
-/// Restore the last scheme from colors.json and re-export without regenerating.
-/// Always re-applies terminal sequences (hot-reload). Wallpaper is opt-in via --wallpaper.
-fn restore(paths: &paths::Paths, cli: &Cli) -> Result<(), error::RwalError> {
-    let dict = export::colors_json::read(paths)?;
-
-    step(cli, "restore: loaded last scheme");
-
-    // Always render templates and hot-reload all open terminals from colors.json
-    if !cli.no_sequences {
-        if let Err(e) = export::templates::render_all(paths, &dict) {
-            warn(&e);
-        }
-        step(cli, "rendered: templates");
-
-        if let Err(e) = export::sequences::apply(paths, &dict) {
-            warn(&e);
-        }
-        step(cli, "applied: terminal sequences");
+    // --preview (-p)
+    if cli.preview {
+        export::generate::preview(&semantic, Some(&dict));
     }
 
-    // Wallpaper is opt-in: only set it when --wallpaper / -w is passed
-    if cli.wallpaper && !dict.wallpaper.as_os_str().is_empty() {
-        if let Err(e) = wallpaper::set(&dict.wallpaper) {
-            warn(&e);
-        } else {
-            step(cli, &format!("wallpaper: {}", dict.wallpaper.display()));
-        }
-    }
-
-    if !cli.quiet {
-        print_palette(&dict.colors);
-    }
-
-    // ── Generate app configs (opt-in via -r / --render) ─────────────────────
-    if let Some(app_opt) = &cli.render {
-        let semantic = colors::semantic::from_dict(&dict);
-        match app_opt {
-            Some(app_name) => {
-                export::generate::render_one(paths, &semantic, app_name)?;
-                step(cli, &format!("generated config for: {app_name}"));
-            }
-            None => {
-                export::generate::render_all(paths, &semantic)?;
-                step(cli, "generated all configs from theme-map.toml");
-            }
-        }
+    // --debug (-d)
+    if cli.debug {
+        export::generate::debug(&paths, &semantic)?;
     }
 
     Ok(())
 }
- 
+
 /// Print a step message unless quiet mode is on.
 fn step(cli: &Cli, msg: &str) {
     if !cli.quiet {
         println!("\x1b[32m::\x1b[0m {msg}");
     }
-}
- 
-/// Print all 16 colors as colored blocks with hex values natively overlaid inside.
-fn print_palette(colors: &[Rgb; 16]) {
-    println!();
- 
-    for row in 0..4 {
-        for col in 0..4 {
-            let c = &colors[row * 4 + col];
-            let fg = if crate::colors::adjust::relative_luminance(c) > 0.5 {
-                "\x1b[38;2;0;0;0m" // Black text on bright blocks
-            } else {
-                "\x1b[38;2;255;255;255m" // White text on dark blocks
-            };
-            
-            print!("\x1b[48;2;{};{};{}m{} {} \x1b[0m", c.r, c.g, c.b, fg, c.to_hex());
-        }
-        println!();
-    }
-    println!();
 }
  

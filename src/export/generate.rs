@@ -50,9 +50,11 @@ pub fn render_one(paths: &Paths, semantic: &SemanticDict, name: &str) -> Result<
     render_app(name, app, semantic, &theme_map.fallbacks)
 }
 
-/// Show semantic roles using dot-palette style.
-pub fn preview(semantic: &SemanticDict) {
-    println!("\n  \x1b[1mSemantic Role Palette Preview\x1b[0m\n");
+/// Show color previews. 
+/// - If `base16` is None, just show semantic roles (Generation flow).
+/// - If `base16` is Some, show both (Preview flow).
+pub fn preview(semantic: &SemanticDict, base16: Option<&crate::colors::types::ColorDict>) {
+    println!("\n  \x1b[1mSemantic Role Palette\x1b[0m\n");
 
     let roles = [
         ("background",      &semantic.colors.background),
@@ -78,10 +80,21 @@ pub fn preview(semantic: &SemanticDict) {
             "\x1b[38;2;255;255;255m" // White text on dark blocks
         };
         
-        println!("  \x1b[48;2;{};{};{}m{} {:<15} \x1b[0m {}", c.r, c.g, c.b, fg, name, c.to_hex());
+        // Vertical blocks with overlaid names
+        println!("  \x1b[48;2;{};{};{}m{} {:<18} \x1b[0m {}", c.r, c.g, c.b, fg, name, c.to_hex());
     }
+
+    if let Some(dict) = base16 {
+        println!("\n  \x1b[1mBase16 Palette Slots\x1b[0m\n");
+        for (i, c) in dict.colors.iter().enumerate() {
+            // Vertical empty blocks with hex beside them + slot index
+            println!("  \x1b[48;2;{};{};{}m          \x1b[0m  {}  (color{})", c.r, c.g, c.b, c.to_hex(), i);
+        }
+    }
+    
     println!();
 }
+
 
 /// Print debug information about the theme-map.toml.
 pub fn debug(paths: &Paths, semantic: &SemanticDict) -> Result<(), RwalError> {

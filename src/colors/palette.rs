@@ -60,11 +60,12 @@ pub fn build(
     let color8 = adjust::darken(&color0, 0.20);      // bright black
 
     let mode: Box<dyn ColorMode> = match mode_name {
-        "adaptive" => Box::new(AdaptiveMode),
-        "vibrant" => Box::new(VibrantMode),
-        "pastel" => Box::new(PastelMode),
-        _ => Box::new(ClassicMode),
+        "dynamic" => Box::new(AdaptiveMode),
+        "neon"    => Box::new(VibrantMode),
+        "soft"    => Box::new(PastelMode),
+        _         => Box::new(ClassicMode), // "balanced"
     };
+
 
     let accents = mode.generate(&sorted);
 
