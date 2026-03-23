@@ -16,14 +16,20 @@ pub fn render_all(paths: &Paths, dict: &ColorDict, semantic: &SemanticDict) -> R
         let rendered = replace_tokens(&contents, dict, semantic);
         let out_path = paths.cache_dir.join(&filename);
 
-        if let Some(parent) = out_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| RwalError::TemplateWriteError(out_path.clone(), e.to_string()))?;
+        let mut should_write = true;
+        if out_path.exists() {
+            if let Ok(existing) = std::fs::read_to_string(&out_path) {
+                if existing == rendered {
+                    should_write = false;
+                }
+            }
         }
 
-        match std::fs::write(&out_path, rendered) {
-            Ok(()) => {}
-            Err(e) => warn(&RwalError::TemplateWriteError(out_path, e.to_string())),
+        if should_write {
+            match std::fs::write(&out_path, rendered) {
+                Ok(()) => {}
+                Err(e) => warn(&RwalError::TemplateWriteError(out_path, e.to_string())),
+            }
         }
     }
 

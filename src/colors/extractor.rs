@@ -16,8 +16,11 @@ const SAMPLE_SIZE: u32 = 200;
 
 /// Open an image file from disk, detecting format from content not extension.
 pub fn open(path: &Path) -> Result<DynamicImage, RwalError> {
-    image::io::Reader::open(path)
-        .map_err(|e| RwalError::ImageDecodeError(e.to_string()))?
+    let file = std::fs::File::open(path)
+        .map_err(|e| RwalError::ImageDecodeError(e.to_string()))?;
+    let reader = std::io::BufReader::new(file);
+    
+    image::io::Reader::new(reader)
         .with_guessed_format()
         .map_err(|e| RwalError::ImageDecodeError(e.to_string()))?
         .decode()
@@ -27,10 +30,9 @@ pub fn open(path: &Path) -> Result<DynamicImage, RwalError> {
 /// Resize image to 200×200 and collect all pixels as Vec<Rgb>.
 /// This is the same downsampling strategy pywal uses for performance.
 pub fn sample_pixels(img: &DynamicImage) -> Vec<Rgb> {
-    let resized = img.resize(
+    let resized = img.thumbnail_exact(
         SAMPLE_SIZE,
         SAMPLE_SIZE,
-        image::imageops::FilterType::Nearest,
     );
 
     resized

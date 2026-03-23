@@ -140,29 +140,26 @@ impl ColorMode for AdaptiveMode {
         
         let mut lums: Vec<f32> = sorted.iter().map(|c| adjust::relative_luminance(c)).collect();
         lums.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let median_lum = if lums.is_empty() { 0.0 } else { lums[lums.len() / 2] };
+        let median_lum = if lums.is_empty() { 0.5 } else { lums[lums.len() / 2] };
         
-        // Calculate shifts relative to a neutral 0.5 luminance
-        let lightness_shift = (0.5 - median_lum) * 0.6;
-        let saturation_boost = (0.5 - median_lum).max(0.0) * 0.5;
-
-        let base_adj = if lightness_shift > 0.0 {
-            adjust::saturate(&adjust::lighten(&base, lightness_shift), saturation_boost)
-        } else {
-            adjust::darken(&base, -lightness_shift) // If light, just darken it for contrast
-        };
+        // Adaptive shift based on image luminance
+        let target_l = if median_lum < 0.3 { 0.6 } else if median_lum > 0.7 { 0.4 } else { 0.5 };
+        let base_hsl = base.to_hsl();
+        let base_adj = Rgb::from_hsl(palette::Hsl::new(
+            base_hsl.hue,
+            (base_hsl.saturation + 0.1).min(1.0),
+            target_l
+        ));
         
-        let base_hsl = base_adj.to_hsl();
+        // Harmonic spread: Analogous + subtle Split-Complementary
         use palette::ShiftHue;
-        
-        // Create an analogous and complementary mix for a visually appealing harmonic spread
         vec![
             base_adj,
-            Rgb::from_hsl(base_hsl.shift_hue(30.0)),
-            Rgb::from_hsl(base_hsl.shift_hue(-30.0)),
-            Rgb::from_hsl(base_hsl.shift_hue(150.0)),
-            Rgb::from_hsl(base_hsl.shift_hue(180.0)),
-            Rgb::from_hsl(base_hsl.shift_hue(210.0)),
+            Rgb::from_hsl(base_adj.to_hsl().shift_hue(20.0)),
+            Rgb::from_hsl(base_adj.to_hsl().shift_hue(-20.0)),
+            Rgb::from_hsl(base_adj.to_hsl().shift_hue(150.0)),
+            Rgb::from_hsl(base_adj.to_hsl().shift_hue(180.0)),
+            Rgb::from_hsl(base_adj.to_hsl().shift_hue(210.0)),
         ]
     }
 }
@@ -175,19 +172,14 @@ impl ColorMode for VibrantMode {
     fn generate(&self, sorted: &[Rgb]) -> Vec<Rgb> {
         let raw_accents = pick_accents(sorted, 6);
         
-        let mut lums: Vec<f32> = sorted.iter().map(|c| adjust::relative_luminance(c)).collect();
-        lums.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let median_lum = if lums.is_empty() { 0.0 } else { lums[lums.len() / 2] };
-        
-        let lightness_shift = (0.5 - median_lum) * 0.6;
-        let saturation_boost = (0.5 - median_lum).max(0.0) * 0.5;
-
         raw_accents.into_iter().map(|c| {
-            if lightness_shift > 0.0 {
-                adjust::saturate(&adjust::lighten(&c, lightness_shift), saturation_boost)
-            } else {
-                adjust::darken(&c, -lightness_shift)
-            }
+            let hsl = c.to_hsl();
+            // Force high saturation and "neon" luminosity baseline
+            Rgb::from_hsl(palette::Hsl::new(
+                hsl.hue,
+                (hsl.saturation + 0.3).min(1.0),
+                0.6 // Consistent bright baseline for neon look
+            ))
         }).collect()
     }
 }
@@ -199,19 +191,14 @@ impl ColorMode for PastelMode {
     fn generate(&self, sorted: &[Rgb]) -> Vec<Rgb> {
         let raw_accents = pick_accents(sorted, 6);
         
-        let mut lums: Vec<f32> = sorted.iter().map(|c| adjust::relative_luminance(c)).collect();
-        lums.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let median_lum = if lums.is_empty() { 0.0 } else { lums[lums.len() / 2] };
-        
-        let lightness_shift = (0.5 - median_lum) * 0.6;
-        
         raw_accents.into_iter().map(|c| {
-            let muted = adjust::saturate(&c, -0.3);
-            if lightness_shift > 0.0 {
-                adjust::lighten(&muted, lightness_shift + 0.1)
-            } else {
-                adjust::darken(&muted, -lightness_shift)
-            }
+            let hsl = c.to_hsl();
+            // Desaturate and lighten for soft pastel tones
+            Rgb::from_hsl(palette::Hsl::new(
+                hsl.hue,
+                (hsl.saturation * 0.4).max(0.1),
+                0.8 // High lightness for pastels
+            ))
         }).collect()
     }
 }

@@ -67,7 +67,9 @@ fn run(cli: Cli) -> Result<(), error::RwalError> {
             step(&cli, "colors: extracted");
 
             let dict = colors::palette::build(raw, image_path.clone(), 100, cli.light, &cli.mode)?;
-            if let Err(e) = cache::scheme::save(&paths, &key, &dict) { warn(&e); }
+            if !cli.noop {
+                if let Err(e) = cache::scheme::save(&paths, &key, &dict) { warn(&e); }
+            }
             (dict, true)
         }
     } else if cli.restore {
@@ -91,14 +93,16 @@ fn run(cli: Cli) -> Result<(), error::RwalError> {
     // ── 3. Base Actions (only if new extraction or explicit restore) ────────
     if is_new {
         // Write JSON exports
-        export::colors_json::write_base16(&paths, &dict)?;
-        if let Err(e) = export::colors_json::write_semantic(&paths, &dict) { warn(&e); }
-        step(&cli, "updated: color caches");
-
-        // Apply hot-reload state unless noop
         if !cli.noop {
+            export::colors_json::write_base16(&paths, &dict)?;
+            if let Err(e) = export::colors_json::write_semantic(&paths, &dict) { warn(&e); }
+            step(&cli, "updated: color caches");
+
+            // Apply hot-reload state
             if let Err(e) = export::sequences::apply(&paths, &dict) { warn(&e); }
             step(&cli, "applied: hot-reload sequences");
+        } else {
+            step(&cli, "noop: skipped cache updates and sequences");
         }
 
 

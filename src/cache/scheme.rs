@@ -20,16 +20,26 @@ pub fn cache_key(
     light_mode: bool,
     file_size:  u64,
 ) -> String {
-    let input = format!(
-        "{}|{}|{}|{}|{}",
-        image_path.display(),
-        backend,
-        mode,
-        light_mode,
-        file_size,
-    );
+    // Content-based hash: first 64KB + metadata
+    // This allows renaming/moving files without losing cache.
+    let mut hasher = Sha1::new();
+    
+    // 1. Metadata that affects palette
+    hasher.update(backend.as_bytes());
+    hasher.update(mode.as_bytes());
+    hasher.update(if light_mode { b"light" as &[u8] } else { b"dark" as &[u8] });
+    hasher.update(&file_size.to_le_bytes());
 
-    let hash = Sha1::digest(input.as_bytes());
+    // 2. Partial file content (first 64KB)
+    if let Ok(mut file) = std::fs::File::open(image_path) {
+        use std::io::Read;
+        let mut buffer = [0u8; 65536];
+        if let Ok(n) = file.read(&mut buffer) {
+            hasher.update(&buffer[..n]);
+        }
+    }
+
+    let hash = hasher.finalize();
     format!("{hash:x}")
 }
 
@@ -172,10 +182,30 @@ mod tests {
     }
 
     #[test]
-    fn test_cache_key_differs_by_path() {
-        let k1 = cache_key(Path::new("/a.jpg"), "kmeans", "classic", false, 100);
-        let k2 = cache_key(Path::new("/b.jpg"), "kmeans", "classic", false, 100);
+    fn test_cache_key_differs_by_path_if_content_differs() {
+        let tmp = TempDir::new();
+        let p1 = tmp.path().join("a.jpg");
+        let p2 = tmp.path().join("b.jpg");
+        std::fs::write(&p1, b"content a").unwrap();
+        std::fs::write(&p2, b"content b").unwrap();
+        
+        let k1 = cache_key(&p1, "kmeans", "classic", false, 100);
+        let k2 = cache_key(&p2, "kmeans", "classic", false, 100);
         assert_ne!(k1, k2);
+    }
+
+    #[test]
+    fn test_cache_key_same_if_content_identical_despite_path() {
+        let tmp = TempDir::new();
+        let p1 = tmp.path().join("a.jpg");
+        let p2 = tmp.path().join("b.jpg");
+        let content = b"shared content";
+        std::fs::write(&p1, content).unwrap();
+        std::fs::write(&p2, content).unwrap();
+        
+        let k1 = cache_key(&p1, "kmeans", "classic", false, content.len() as u64);
+        let k2 = cache_key(&p2, "kmeans", "classic", false, content.len() as u64);
+        assert_eq!(k1, k2, "Cache key should be identical for same content despite different paths");
     }
 
     #[test]
