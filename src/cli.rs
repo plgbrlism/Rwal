@@ -9,7 +9,6 @@ CLI Commands:
 -q                 quiet
 --backend <name>   kmeans:accurate (default) | fast:median_cut
 --mode <name>      [default] classic:balanced |adaptive:dynamic | vibrant:neon | pastel:soft
---theme <name>     load a saved .json theme instead of image
 --wallpaper        also apply the wallpaper using the detected backend
 -g, --generate [N] render app configs (legacy flag)
 

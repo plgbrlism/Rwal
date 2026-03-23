@@ -6,7 +6,6 @@ Paths used by rwal:
 ~/.cache/rwal/sequences           // OSC sequence file (sourced on login)
 ~/.cache/rwal/schemes/            // per-image cached palettes
 ~/.config/rwal/templates/         // user templates
-~/.config/rwal/themes/            // saved named themes
 ~/.config/rwal/config-map.toml      // user-defined semantic role → app key mapping
 
 */
@@ -26,7 +25,6 @@ pub struct Paths {
     // ~/.config/rwal/
     pub config_dir:    PathBuf,
     pub templates_dir: PathBuf,
-    pub themes_dir:    PathBuf,
     pub config_map:    PathBuf,
 }
 
@@ -51,7 +49,6 @@ impl Paths {
             cache_dir,
 
             templates_dir: config_dir.join("templates"),
-            themes_dir:    config_dir.join("themes"),
             config_map:    config_dir.join("config-map.toml"),
             config_dir,
         }
@@ -78,7 +75,6 @@ impl Paths {
             &self.schemes_dir,
             &self.config_dir,
             &self.templates_dir,
-            &self.themes_dir,
         ];
 
         for dir in dirs {
@@ -153,12 +149,7 @@ mod tests {
         assert!(p.templates_dir.ends_with("templates"));
     }
 
-    #[test]
-    fn test_themes_dir_is_under_config_dir() {
-        let p = paths();
-        assert!(p.themes_dir.starts_with(&p.config_dir));
-        assert!(p.themes_dir.ends_with("themes"));
-    }
+
 
     #[test]
     fn test_different_homes_produce_different_paths() {
@@ -234,7 +225,6 @@ mod tests {
         assert!(p.schemes_dir.exists(),   "schemes_dir missing");
         assert!(p.config_dir.exists(),    "config_dir missing");
         assert!(p.templates_dir.exists(), "templates_dir missing");
-        assert!(p.themes_dir.exists(),    "themes_dir missing");
     }
 
     #[test]

@@ -28,10 +28,6 @@ rwal -R     # re-apply terminal colors
 rwal -R -w  # re-apply terminal colors + wallpaper
 ```
 
-Load a saved theme:
-```bash
-rwal --theme catppuccin
-```
 
 ## Supported Modes
 
@@ -52,9 +48,7 @@ rwal --theme catppuccin
 | `-d, --debug` | Show debug info for `config-map.toml` |
 | `-q, --quiet` | Suppress all output |
 | `--mode <NAME>` | Generation mode (`classic`, `adaptive`, `vibrant`, `pastel`) |
-| `--theme <NAME>` | Load a saved `.json` theme from `~/.config/rwal/themes/` |
 | `--backend <NAME>` | Extraction engine (`kmeans` or `median_cut`) |
-| `--list-themes` | Show all available themes |
 
 ## Templates & Mapping
 
