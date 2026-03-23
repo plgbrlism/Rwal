@@ -42,19 +42,62 @@ rwal --theme catppuccin
 
 ## Full Options
 
-| Flag | Description |
-|---|---|
 | `-i, --image <PATH>` | Image file or directory to process |
 | `-w, --wallpaper` | **Opt-in**: Apply the wallpaper using the best-detected backend |
 | `-R, --restore` | Restore the last generated scheme from `colors.json` |
+| `-r, --render` | **Render**: Replace placeholders in templates and save to `~/.cache/rwal/` |
+| `-m, --map [<APP>]`| **Map**: Symlink cached templates to their final destinations (defined in `config-map.toml`) |
 | `-l, --light` | Generate a light color scheme |
+| `-p, --preview` | Show a visual preview of the current palette |
+| `-d, --debug` | Show debug info for `config-map.toml` |
 | `-q, --quiet` | Suppress all output |
 | `--mode <NAME>` | Generation mode (`classic`, `adaptive`, `vibrant`, `pastel`) |
 | `--theme <NAME>` | Load a saved `.json` theme from `~/.config/rwal/themes/` |
 | `--backend <NAME>` | Extraction engine (`kmeans` or `median_cut`) |
 | `--list-themes` | Show all available themes |
 
-## Templates
+## Templates & Mapping
 
-Place any file in `~/.config/rwal/templates/` to have it rendered to `~/.cache/rwal/` on every run.
-Tokens like `{color0}`, `{background}`, `{foreground}`, `{wallpaper}`, and `{alpha}` are supported.
+`rwal` uses a two-step process for styling external applications: **Rendering** and **Mapping**.
+
+### 1. Rendering (`-r, --render`)
+Place your configuration templates in `~/.config/rwal/templates/`. These files can contain placeholders like `{primary}`, `{background}`, `{color4}`, etc.
+
+When you run `rwal -r`, it:
+1. Reads every file in the templates folder.
+2. Replaces all placeholders with the current theme colors.
+3. Writes the finished files to `~/.cache/rwal/`.
+
+### 2. Mapping (`-m, --map`)
+To link these cached files to your applications, use `~/.config/rwal/config-map.toml`.
+
+```toml
+[btop]
+template = "btop.theme"
+output   = "~/.config/btop/theme/rwal.theme"
+
+[rofi]
+template = "colors.rasi"
+output   = "~/.config/rofi/colors.rasi"
+```
+
+When you run `rwal -m`, it creates symlinks from the `output` path to the cached file in `~/.cache/rwal/`.
+
+### Evaluation: `-r` vs `-m`
+- **`-r` (Render)**: This is the **data processing** step. It creates the actual "content" of your themes. You generally run this whenever you change wallpapers or themes.
+- **`-m` (Map)**: This is the **filesystem** step. It ensures your applications are pointing to the right files. You only *need* to run this once to set up the links, or if you add new entries to `config-map.toml`.
+
+**Pro Tip**: Run `rwal -rm` to do both at once!
+
+## Template Tokens
+
+| Token | Description |
+|---|---|
+| `{background}` | Main background color (hex) |
+| `{surface}`    | Slightly lighter background (hex) |
+| `{foreground}` | Main text color (hex) |
+| `{primary}`    | Main accent color (typically color1) |
+| `{error}`, `{success}` | State colors |
+| `{color0}` ... `{color15}` | Raw palette slots |
+| `{wallpaper}`  | Path to the current wallpaper |
+| `{alpha}`      | Opacity value (0-100) |

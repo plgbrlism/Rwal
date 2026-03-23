@@ -5,7 +5,7 @@ use crate::error::RwalError;
 /// Set wallpaper using feh with --bg-scale (keep aspect ratio).
 pub fn set(path: &Path) -> Result<(), RwalError> {
     let status = Command::new("feh")
-        .args(["--no-fehbg", "--bg-scale"])
+        .args(["--bg-scale", "--no-fehbg"])
         .arg(path)
         .status()
         .map_err(|e| RwalError::WallpaperSetFailed(

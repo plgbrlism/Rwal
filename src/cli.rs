@@ -14,9 +14,9 @@ CLI Commands:
 -g, --generate [N] render app configs (legacy flag)
 
 Subcommands:
-generate [APP]    render app configs from theme-map.toml
+generate [APP]    render app configs from config-map.toml
 preview           show semantic roles using dot-palette style
-debug             check theme-map.toml for errors
+debug             check config-map.toml for errors
 */
 
 use clap::Parser;
@@ -44,20 +44,20 @@ pub struct Cli {
     #[arg(short = 'p', long = "preview", default_value_t = false, conflicts_with_all = ["quiet"])]
     pub preview: bool,
 
-    /// Validate theme-map.toml mappings
+    /// Validate config-map.toml mappings
     #[arg(short = 'd', long = "debug", default_value_t = false, conflicts_with_all = ["quiet"])]
     pub debug: bool,
 
     /// Render user templates from ~/.config/rwal/templates/
-    #[arg(short = 't', long = "template", default_value_t = false, conflicts_with = "noop")]
-    pub template: bool,
+    #[arg(short = 'r', long = "render", default_value_t = false, conflicts_with = "noop")]
+    pub render: bool,
 
-    /// Multi-purpose render flag
-    #[arg(short = 'r', long = "render", value_name = "APP", num_args = 0..=1, conflicts_with = "noop",
-    help = "Render app configs from theme-map.toml\n\
+    /// Map rendered templates to their final destinations
+    #[arg(short = 'm', long = "map", value_name = "APP", num_args = 0..=1, conflicts_with = "noop",
+    help = "Map rendered templates to their final destinations from config-map.toml\n\
             Can be standalone (use last cache) or chained with -i (new image).\n\
-            Optional: specify a single app name to render (default: all)")]
-    pub render: Option<Option<String>>,
+            Optional: specify a single app name to map (default: all)")]
+    pub map: Option<Option<String>>,
 
     /// Generate a light color scheme
     #[arg(short = 'l', long = "light", default_value_t = false)]
@@ -99,13 +99,13 @@ impl Cli {
     pub fn validate(&self) -> Result<(), String> {
         if self.image.is_none() 
             && !self.restore 
-            && self.render.is_none()
-            && !self.template
+            && self.map.is_none()
+            && !self.render
             && !self.preview
             && !self.debug
         {
             return Err(
-                "no action provided — use -i <image>, -R to restore, -r to render, -t for templates, -p to preview, or -d to debug".into()
+                "no action provided — use -i <image>, -R to restore, -m to map, -r to render, -p to preview, or -d to debug".into()
             );
         }
         Ok(())

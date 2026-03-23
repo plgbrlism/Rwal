@@ -138,6 +138,6 @@ fn nudge_to_hue(src: &Rgb, _target_hue_deg: f32, fallback: &Rgb) -> Rgb {
     }
 
     // Color is sufficiently saturated — keep it in-palette as-is.
-    // Users can override via theme-map.yml if they want conventional values.
+    // Users can override via config-map.toml if they want conventional values.
     *src
 }

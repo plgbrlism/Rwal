@@ -119,16 +119,25 @@ fn run(cli: Cli) -> Result<(), error::RwalError> {
     // ── 4. Chained Action Flags ─────────────────────────────────────────────
     let semantic = colors::semantic::from_dict(&dict);
 
-    // --render [<APP>]
-    if let Some(app_opt) = &cli.render {
+    // --template (-r)
+    if cli.render {
+        if let Err(e) = export::templates::render_all(&paths, &dict, &semantic) {
+            warn(&e);
+        } else {
+            step(&cli, "rendered user templates to ~/.cache/rwal/");
+        }
+    }
+
+    // --map (-m) [<APP>]
+    if let Some(app_opt) = &cli.map {
         match app_opt {
             Some(app_name) => {
                 export::generate::render_one(&paths, &semantic, app_name)?;
-                step(&cli, &format!("generated config for: {app_name}"));
+                step(&cli, &format!("mapped config for: {app_name}"));
             }
             None => {
                 export::generate::render_all(&paths, &semantic)?;
-                step(&cli, "generated all configs from theme-map.toml");
+                step(&cli, "mapped all configs from config-map.toml");
             }
         }
     }
@@ -141,15 +150,6 @@ fn run(cli: Cli) -> Result<(), error::RwalError> {
     // --debug (-d)
     if cli.debug {
         export::generate::debug(&paths, &semantic)?;
-    }
-
-    // --template (-t)
-    if cli.template {
-        if let Err(e) = export::templates::render_all(&paths, &dict) {
-            warn(&e);
-        } else {
-            step(&cli, "rendered user templates to ~/.cache/rwal/");
-        }
     }
 
     Ok(())

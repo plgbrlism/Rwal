@@ -1,0 +1,16 @@
+# rwal config-map.toml example
+#
+# Maps rendered templates (from ~/.config/rwal/templates/)
+# to their final configuration destinations via symlinks.
+
+[btop]
+template = "btop.theme"
+output   = "~/.config/btop/theme/rwal.theme"
+
+[rofi]
+template = "colors.rasi"
+output   = "~/.config/rofi/colors.rasi"
+
+[kitty]
+template = "kitty.conf"
+output   = "~/.config/kitty/theme.conf"

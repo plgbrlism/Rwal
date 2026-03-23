@@ -7,7 +7,7 @@ Paths used by rwal:
 ~/.cache/rwal/schemes/            // per-image cached palettes
 ~/.config/rwal/templates/         // user templates
 ~/.config/rwal/themes/            // saved named themes
-~/.config/rwal/theme-map.toml      // user-defined semantic role → app key mapping
+~/.config/rwal/config-map.toml      // user-defined semantic role → app key mapping
 
 */
 
@@ -27,7 +27,7 @@ pub struct Paths {
     pub config_dir:    PathBuf,
     pub templates_dir: PathBuf,
     pub themes_dir:    PathBuf,
-    pub theme_map:     PathBuf,
+    pub config_map:    PathBuf,
 }
 
 impl Paths {
@@ -52,7 +52,7 @@ impl Paths {
 
             templates_dir: config_dir.join("templates"),
             themes_dir:    config_dir.join("themes"),
-            theme_map:     config_dir.join("theme-map.toml"),
+            config_map:    config_dir.join("config-map.toml"),
             config_dir,
         }
     }
@@ -61,10 +61,10 @@ impl Paths {
     pub fn ensure_config(&self) -> Result<(), RwalError> {
         self.ensure_dirs()?;
 
-        if !self.theme_map.exists() {
-            let default_map = include_str!("../contrib/theme-map.example.toml");
-            std::fs::write(&self.theme_map, default_map).map_err(|e| {
-                RwalError::CreateDirFailed(self.theme_map.clone(), e.to_string())
+        if !self.config_map.exists() {
+            let default_map = include_str!("../contrib/config-map.example.toml");
+            std::fs::write(&self.config_map, default_map).map_err(|e| {
+                RwalError::CreateDirFailed(self.config_map.clone(), e.to_string())
             })?;
         }
 

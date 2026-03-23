@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::colors::types::ColorDict;
+use crate::colors::semantic::SemanticDict;
 use crate::error::{warn, RwalError};
 use crate::paths::Paths;
 
@@ -8,11 +9,11 @@ use crate::paths::Paths;
 ///
 /// Only user templates from `~/.config/rwal/templates/` are loaded.
 /// Drop any template file there to have it rendered on every run.
-pub fn render_all(paths: &Paths, dict: &ColorDict) -> Result<(), RwalError> {
+pub fn render_all(paths: &Paths, dict: &ColorDict, semantic: &SemanticDict) -> Result<(), RwalError> {
     let templates = collect_templates(paths)?;
 
     for (filename, contents) in templates {
-        let rendered = replace_tokens(&contents, dict);
+        let rendered = replace_tokens(&contents, dict, semantic);
         let out_path = paths.cache_dir.join(&filename);
 
         if let Some(parent) = out_path.parent() {
@@ -66,11 +67,13 @@ fn collect_templates(paths: &Paths) -> Result<HashMap<String, String>, RwalError
 /// Supported tokens:
 ///   {color0} … {color15}  — palette colors as #rrggbb hex
 ///   {background}          — background color as #rrggbb hex
+///   {surface}             — surface color as #rrggbb hex
 ///   {foreground}          — foreground color as #rrggbb hex
-///   {cursor}              — cursor color as #rrggbb hex
+///   {primary}             — primary color as #rrggbb hex
+///   ... other semantic roles
 ///   {wallpaper}           — absolute path to the source wallpaper
 ///   {alpha}               — alpha/opacity value (0–100)
-fn replace_tokens(contents: &str, dict: &ColorDict) -> String {
+fn replace_tokens(contents: &str, dict: &ColorDict, semantic: &SemanticDict) -> String {
     let mut out = contents.to_string();
 
     for i in 0..16 {
@@ -79,11 +82,26 @@ fn replace_tokens(contents: &str, dict: &ColorDict) -> String {
         out = out.replace(&token, &value);
     }
 
-    out = out.replace("{background}", &dict.special.background.to_hex());
-    out = out.replace("{foreground}", &dict.special.foreground.to_hex());
-    out = out.replace("{cursor}", &dict.special.cursor.to_hex());
-    out = out.replace("{wallpaper}", &dict.wallpaper.display().to_string());
-    out = out.replace("{alpha}", &dict.alpha.to_string());
+    // Special colors
+    out = out.replace("{cursor}", &semantic.colors.cursor.to_hex());
+
+    // Semantic roles
+    out = out.replace("{background}", &semantic.colors.background.to_hex());
+    out = out.replace("{surface}", &semantic.colors.surface.to_hex());
+    out = out.replace("{foreground}", &semantic.colors.foreground.to_hex());
+    out = out.replace("{primary}", &semantic.colors.primary.to_hex());
+    out = out.replace("{secondary}", &semantic.colors.secondary.to_hex());
+    out = out.replace("{tertiary}", &semantic.colors.tertiary.to_hex());
+    out = out.replace("{accent}", &semantic.colors.accent.to_hex());
+    out = out.replace("{error}", &semantic.colors.error.to_hex());
+    out = out.replace("{success}", &semantic.colors.success.to_hex());
+    out = out.replace("{warning}", &semantic.colors.warning.to_hex());
+    out = out.replace("{info}", &semantic.colors.info.to_hex());
+    out = out.replace("{neutral}", &semantic.colors.neutral.to_hex());
+    out = out.replace("{neutral_variant}", &semantic.colors.neutral_variant.to_hex());
+
+    out = out.replace("{wallpaper}", &semantic.wallpaper);
+    out = out.replace("{alpha}", &semantic.alpha.to_string());
 
     out
 }
@@ -139,10 +157,15 @@ mod tests {
         }
     }
 
+    fn dummy_semantic() -> SemanticDict {
+        crate::colors::semantic::from_dict(&dummy_dict())
+    }
+
     #[test]
     fn test_replace_color_tokens() {
         let dict = dummy_dict();
-        let out = replace_tokens("{color0} {color1} {color15}", &dict);
+        let semantic = dummy_semantic();
+        let out = replace_tokens("{color0} {color1} {color15}", &dict, &semantic);
         assert!(out.contains(&dict.colors[0].to_hex()));
         assert!(out.contains(&dict.colors[1].to_hex()));
         assert!(out.contains(&dict.colors[15].to_hex()));
@@ -151,16 +174,19 @@ mod tests {
     #[test]
     fn test_replace_special_tokens() {
         let dict = dummy_dict();
-        let out = replace_tokens("{background} {foreground} {cursor}", &dict);
-        assert!(out.contains(&dict.special.background.to_hex()));
-        assert!(out.contains(&dict.special.foreground.to_hex()));
-        assert!(out.contains(&dict.special.cursor.to_hex()));
+        let semantic = dummy_semantic();
+        let out = replace_tokens("{background} {foreground} {cursor} {primary}", &dict, &semantic);
+        assert!(out.contains(&semantic.colors.background.to_hex()));
+        assert!(out.contains(&semantic.colors.foreground.to_hex()));
+        assert!(out.contains(&semantic.colors.cursor.to_hex()));
+        assert!(out.contains(&semantic.colors.primary.to_hex()));
     }
 
     #[test]
     fn test_replace_wallpaper_and_alpha() {
         let dict = dummy_dict();
-        let out = replace_tokens("{wallpaper} {alpha}", &dict);
+        let semantic = dummy_semantic();
+        let out = replace_tokens("{wallpaper} {alpha}", &dict, &semantic);
         assert!(out.contains("/home/user/wall.jpg"));
         assert!(out.contains("90"));
     }
@@ -168,8 +194,9 @@ mod tests {
     #[test]
     fn test_no_tokens_unchanged() {
         let dict = dummy_dict();
+        let semantic = dummy_semantic();
         let content = "nothing to replace here";
-        assert_eq!(replace_tokens(content, &dict), content);
+        assert_eq!(replace_tokens(content, &dict, &semantic), content);
     }
 
     #[test]
@@ -195,6 +222,7 @@ mod tests {
         let paths = Paths::from_home(tmp.path().to_path_buf());
         paths.ensure_dirs().unwrap();
         let dict = dummy_dict();
+        let semantic = dummy_semantic();
 
         std::fs::write(
             paths.templates_dir.join("colors.txt"),
@@ -202,9 +230,9 @@ mod tests {
         )
         .unwrap();
 
-        render_all(&paths, &dict).unwrap();
+        render_all(&paths, &dict, &semantic).unwrap();
 
         let out = std::fs::read_to_string(paths.cache_dir.join("colors.txt")).unwrap();
-        assert!(out.contains(&dict.special.background.to_hex()));
+        assert!(out.contains(&semantic.colors.background.to_hex()));
     }
 }

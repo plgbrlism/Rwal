@@ -37,6 +37,7 @@ pub enum RwalError {
     TemplateWriteError(PathBuf, String),
     ColorsJsonWriteError(PathBuf, String),
     SequenceWriteError(String),
+    SymlinkFailed(PathBuf, PathBuf, String),
 
     // Wallpaper
     WallpaperSetFailed(String),
@@ -86,6 +87,8 @@ impl fmt::Display for RwalError {
                 write!(f, "Could not write colors.json to {}: {msg}", p.display()),
             RwalError::SequenceWriteError(msg) =>
                 write!(f, "Could not write terminal sequences: {msg}"),
+            RwalError::SymlinkFailed(src, dst, msg) =>
+                write!(f, "Could not symlink {} to {}: {msg}", src.display(), dst.display()),
 
             // Wallpaper
             RwalError::WallpaperSetFailed(msg) =>
@@ -244,6 +247,7 @@ mod tests {
             Box::new(RwalError::TemplateWriteError(PathBuf::from("/g"), "x".into())),
             Box::new(RwalError::ColorsJsonWriteError(PathBuf::from("/i"), "x".into())),
             Box::new(RwalError::SequenceWriteError("x".into())),
+            Box::new(RwalError::SymlinkFailed(PathBuf::from("/a"), PathBuf::from("/b"), "x".into())),
             Box::new(RwalError::WallpaperSetFailed("x".into())),
             Box::new(RwalError::NoCompositorDetected),
             Box::new(RwalError::HomeDirNotFound),

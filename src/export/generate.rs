@@ -4,36 +4,28 @@ use std::path::PathBuf;
 use crate::error::RwalError;
 use crate::paths::Paths;
 use crate::colors::semantic::SemanticDict;
-use crate::colors::types::Rgb;
 
-/// The top-level mapping file (~/.config/rwal/theme-map.toml)
+/// The top-level mapping file (~/.config/rwal/config-map.toml)
 #[derive(Deserialize, Debug)]
-pub struct ThemeMap {
-    /// Global role fallbacks: if role X is missing, try Y
-    #[serde(default)]
-    pub fallbacks: HashMap<String, String>,
-    /// Application entries
+pub struct ConfigMap {
+    /// Mapping of arbitrary keys (e.g., "btop", "kitty") to a template and output path
     #[serde(flatten)]
-    pub apps: HashMap<String, AppEntry>,
+    pub templates: HashMap<String, TemplateEntry>,
 }
 
-/// A single application's config mapping entry
 #[derive(Deserialize, Debug)]
-pub struct AppEntry {
-    /// Where to write the generated config (supports ~/)
+pub struct TemplateEntry {
+    /// The name of the template file in ~/.config/rwal/templates/ (e.g., "btop.theme")
+    pub template: String,
+    /// The destination path where the generated template should be symlinked (supports ~/)
     pub output: String,
-    /// Format: toml | css | ini (fallback: key = value)
-    pub format: Option<String>,
-    /// Map of [app-specific-key] = "semantic-role"
-    pub map: HashMap<String, String>,
 }
 
-/// Render ALL apps defined in theme-map.toml using the active semantic palette.
-pub fn render_all(paths: &Paths, semantic: &SemanticDict) -> Result<(), RwalError> {
-    let theme_map = load_theme_map(paths)?;
+pub fn render_all(paths: &Paths, _semantic: &SemanticDict) -> Result<(), RwalError> {
+    let config_map = load_config_map(paths)?;
     
-    for (name, app) in theme_map.apps {
-        if let Err(e) = render_app(&name, &app, semantic, &theme_map.fallbacks) {
+    for (name, entry) in config_map.templates {
+        if let Err(e) = render_and_symlink(&name, &entry, paths) {
             crate::error::warn(&e);
         }
     }
@@ -41,13 +33,44 @@ pub fn render_all(paths: &Paths, semantic: &SemanticDict) -> Result<(), RwalErro
     Ok(())
 }
 
-/// Render a single named app from the mapping file.
-pub fn render_one(paths: &Paths, semantic: &SemanticDict, name: &str) -> Result<(), RwalError> {
-    let theme_map = load_theme_map(paths)?;
-    let app = theme_map.apps.get(name)
-        .ok_or_else(|| RwalError::Custom(format!("app '{}' not found in theme-map.toml", name)))?;
+pub fn render_one(paths: &Paths, _semantic: &SemanticDict, name: &str) -> Result<(), RwalError> {
+    let config_map = load_config_map(paths)?;
+    let entry = config_map.templates.get(name)
+        .ok_or_else(|| RwalError::Custom(format!("entry '{}' not found in config-map.toml", name)))?;
     
-    render_app(name, app, semantic, &theme_map.fallbacks)
+    render_and_symlink(name, entry, paths)
+}
+
+fn render_and_symlink(_name: &str, entry: &TemplateEntry, paths: &Paths) -> Result<(), RwalError> {
+    let source_cache_path = paths.cache_dir.join(&entry.template);
+    
+    if !source_cache_path.exists() {
+        return Err(RwalError::Custom(format!(
+            "Template '{}' not found in cache. Ensure it exists in ~/.config/rwal/templates/ and the --template flag was run.",
+            entry.template
+        )));
+    }
+
+    let output_path = resolve_path(&entry.output);
+    
+    if let Some(parent) = output_path.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| RwalError::CreateDirFailed(parent.to_path_buf(), e.to_string()))?;
+        }
+    }
+
+    // Remove existing symlink or file if it exists
+    if output_path.exists() || output_path.is_symlink() {
+        std::fs::remove_file(&output_path)
+            .map_err(|e| RwalError::Custom(format!("Failed to remove existing file at {}: {}", output_path.display(), e)))?;
+    }
+
+    // Create the symlink
+    std::os::unix::fs::symlink(&source_cache_path, &output_path)
+        .map_err(|e| RwalError::SymlinkFailed(source_cache_path.clone(), output_path.clone(), e.to_string()))?;
+
+    Ok(())
 }
 
 /// Show color previews. 
@@ -96,139 +119,39 @@ pub fn preview(semantic: &SemanticDict, base16: Option<&crate::colors::types::Co
 }
 
 
-/// Print debug information about the theme-map.toml.
-pub fn debug(paths: &Paths, semantic: &SemanticDict) -> Result<(), RwalError> {
-    let theme_map = load_theme_map(paths)?;
-    println!("\n  \x1b[1mDebugging theme-map.toml\x1b[0m\n");
+/// Print debug information about the config-map.toml.
+pub fn debug(paths: &Paths, _semantic: &SemanticDict) -> Result<(), RwalError> {
+    let config_map = load_config_map(paths)?;
+    println!("\n  \x1b[1mDebugging config-map.toml\x1b[0m\n");
 
-    let mut issues = 0;
-    
-    for (app_name, app) in &theme_map.apps {
-        println!("  \x1b[1m[{}]\x1b[0m  (output: {})", app_name, app.output);
-        
-        let mut sorted_keys: Vec<_> = app.map.keys().collect();
-        sorted_keys.sort();
-
-        for key in sorted_keys {
-            let role = &app.map[key];
-            if let Some(color) = resolve_role(role, semantic, &theme_map.fallbacks) {
-                // OK
-                println!("    {}  →  {}  ({})", key, role, color);
-            } else {
-                println!("    \x1b[31merror\x1b[0m: {} uses unknown role '{}'", key, role);
-                issues += 1;
-            }
+    for (app_name, entry) in &config_map.templates {
+        println!("  \x1b[1m[{}]\x1b[0m", app_name);
+        println!("    template: {}", entry.template);
+        println!("    output:   {}", entry.output);
+        let cache_path = paths.cache_dir.join(&entry.template);
+        if cache_path.exists() {
+            println!("    \x1b[32mstatus\x1b[0m: cached");
+        } else {
+            println!("    \x1b[31;1mstatus\x1b[0m: MISSING in cache (~/.cache/rwal/{})", entry.template);
         }
         println!();
     }
 
-    if issues == 0 {
-        println!("  \x1b[32mOK\x1b[0m: No issues found in theme-map.toml");
-    } else {
-        println!("  \x1b[31mFound {} issues.\x1b[0m", issues);
-    }
-    
     Ok(())
 }
 
-fn load_theme_map(paths: &Paths) -> Result<ThemeMap, RwalError> {
-    if !paths.theme_map.exists() {
-        return Err(RwalError::Custom("theme-map.toml not found. Run rwal once to seed it.".into()));
+fn load_config_map(paths: &Paths) -> Result<ConfigMap, RwalError> {
+    if !paths.config_map.exists() {
+        return Err(RwalError::Custom("config-map.toml not found. Run rwal once to seed it.".into()));
     }
 
-    let content = std::fs::read_to_string(&paths.theme_map)
-        .map_err(|e| RwalError::CacheReadError(paths.theme_map.clone(), e.to_string()))?;
+    let content = std::fs::read_to_string(&paths.config_map)
+        .map_err(|e| RwalError::CacheReadError(paths.config_map.clone(), e.to_string()))?;
 
-    let map: ThemeMap = toml::from_str(&content)
-        .map_err(|e| RwalError::Custom(format!("failed to parse theme-map.toml: {}", e)))?;
+    let map: ConfigMap = toml::from_str(&content)
+        .map_err(|e| RwalError::Custom(format!("failed to parse config-map.toml: {}", e)))?;
 
     Ok(map)
-}
-
-fn render_app(name: &str, app: &AppEntry, semantic: &SemanticDict, fallbacks: &HashMap<String, String>) -> Result<(), RwalError> {
-    let output_path = resolve_path(&app.output);
-    
-    // Ensure parent directory exists
-    if let Some(parent) = output_path.parent() {
-        if !parent.exists() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| RwalError::CreateDirFailed(parent.to_path_buf(), e.to_string()))?;
-        }
-    }
-
-    let format = app.format.as_deref().unwrap_or("conf");
-    let mut content = format!("# Generated by rwal for {} from {}\n", name, semantic.wallpaper);
-    
-    // Sort keys for deterministic output
-    let mut keys: Vec<_> = app.map.keys().collect();
-    keys.sort();
-
-    for key in keys {
-        let role = &app.map[key];
-        
-        let color = match resolve_role(role, semantic, fallbacks) {
-            Some(c) => c,
-            None => {
-                crate::error::warn(&RwalError::Custom(format!("role '{}' (mapping to '{}') not found", role, key)));
-                continue;
-            }
-        };
-
-        match format {
-            "toml" => {
-                content.push_str(&format!("{} = \"{}\"\n", key, color));
-            }
-            "css" => {
-                let css_key = key.replace('.', "-");
-                content.push_str(&format!("  --{}: {};\n", css_key, color));
-            }
-            "ini" | "conf" => {
-                content.push_str(&format!("{} = {}\n", key, color));
-            }
-            _ => {
-                content.push_str(&format!("{} = {}\n", key, color));
-            }
-        }
-    }
-
-    std::fs::write(&output_path, content)
-        .map_err(|e| RwalError::Custom(format!("failed to write config to {}: {}", output_path.display(), e)))?;
-
-    Ok(())
-}
-
-fn resolve_role<'a>(role: &str, semantic: &'a SemanticDict, fallbacks: &HashMap<String, String>) -> Option<&'a Rgb> {
-    // 1. Direct lookup
-    if let Some(c) = lookup_direct(role, semantic) {
-        return Some(c);
-    }
-
-    // 2. Fallback lookup (recursive-ish)
-    if let Some(target) = fallbacks.get(role) {
-        return resolve_role(target, semantic, fallbacks);
-    }
-
-    None
-}
-
-fn lookup_direct<'a>(role: &str, semantic: &'a SemanticDict) -> Option<&'a Rgb> {
-    match role {
-        "background" => Some(&semantic.colors.background),
-        "surface"    => Some(&semantic.colors.surface),
-        "foreground" => Some(&semantic.colors.foreground),
-        "cursor"     => Some(&semantic.colors.cursor),
-        "primary"    => Some(&semantic.colors.primary),
-        "secondary"  => Some(&semantic.colors.secondary),
-        "tertiary"   => Some(&semantic.colors.tertiary),
-        "accent"     => Some(&semantic.colors.accent),
-        "error"      => Some(&semantic.colors.error),
-        "success"    => Some(&semantic.colors.success),
-        "warning"    => Some(&semantic.colors.warning),
-        "info"       => Some(&semantic.colors.info),
-        "neutral"    => Some(&semantic.colors.neutral),
-        "neutral_variant" => Some(&semantic.colors.neutral_variant),
-        _ => None,
-    }
 }
 
 fn resolve_path(path: &str) -> PathBuf {
